@@ -303,25 +303,48 @@ sections at that point. Both configurations build clean.
 
 ---
 
-### [ ] Phase 5 — Jump to the relevant script line ⚠️ SPIKE FIRST
+### [~] Phase 5 — Jump to the relevant script line ⚠️ SPIKE PASSED
 
-**The riskiest item in the plan.** Mapping a string range to a rendered y-offset
-inside a SwiftUI `Text` is genuinely fiddly: it has to account for line wrapping,
-font metrics, and dynamic type.
+**Step 1 — spike: DONE, and it passed.** The plan said to spike this before
+committing, because mapping a quote to a scroll position is the risky part. It
+turned out to be tractable precisely because Phase 0 and Phase 4 already built
+the calibration.
 
-- **Step 1 — spike (~0.5 day).** Prove you can locate a quote in the script and
-  scroll to it. If the text-offset math is not clean, **stop here.** Phase 4
-  delivers most of the value at a fraction of the cost.
-- **Step 2 — structured responses.** Ask for `{answer, script_quote}` via
-  `response_format: json_object`. ⚠️ Not universally supported (Together notably)
-  — must degrade cleanly to plain text.
-- **Step 3 — navigate.** Seek to the match, highlight it, and replace the
-  append-to-the-end **To script** behavior with inline placement near the
-  current position.
+- `ScriptQuoteLocator` finds a model-quoted passage in the script, degrading
+  through exact → normalised → gap-tolerant word sequence, and returns a
+  character offset with a confidence score.
+- `ScriptTextMapper.phase(for:...)` is the inverse mapping, calibrated the same
+  way as the forward one, and aims the target at the **centre of the readable
+  band** rather than the top, where the fade mask would obscure it.
+- Measured accuracy on a 40-section script with deliberately messy quotes
+  (dropped word, no terminal punctuation): every quote located at confidence
+  1.00, landing within a consistent **3% of the script**, against a viewport
+  showing ~6 of ~50 lines. The 3% is a fixed centring offset, not random drift.
 
-**Files:** `ScrollingTextView.swift`, `AIService.swift`, `OverlayView.swift`
+**One real bug the spike caught:** the first word-sequence matcher required a
+*consecutive* run, so it failed on the most common real case — the model drops
+or rewords a word mid-quote. Replaced with gap-tolerant in-order matching, which
+now tolerates several dropped words while still refusing weak matches (minimum
+three words and 0.5 confidence), so a short quote can never jump the speaker to
+a random place.
 
-**Risk:** High · **Effort:** 2–3 days *if the spike passes*
+**Still to do (steps 2 and 3):**
+
+- [ ] Ask the model for `{answer, script_quote}` via `response_format:
+      json_object`, degrading cleanly to plain text where unsupported (Together
+      notably). ⚠️ This is the part most likely to need provider-specific care.
+- [ ] On the answer card, add **Jump to this line**, which locates the quote,
+      seeks the scroller, and highlights the passage.
+- [ ] Replace the append-to-the-end **To script** behaviour with inline
+      placement.
+
+**Files so far:** `ScriptQuoteLocator.swift` (new),
+`ScriptQuoteLocatorSelfTests.swift` (new), `ScriptTextMapper.swift`,
+`AppDelegate.swift`
+
+**Risk:** Spike resolved the *math* risk (high → low). The remaining risk is
+provider support for structured output, which is bounded — a failure degrades to
+today's behaviour.
 
 ---
 

@@ -115,4 +115,68 @@ enum ScriptTextMapper {
         if upper < script.count { slice += "\n…" }
         return slice
     }
+
+    // MARK: - Inverse mapping
+
+    /// The phase the scroller must be at for the given character index to sit
+    /// comfortably inside the readable band of the viewport.
+    ///
+    /// This is the inverse of the mapping used by `makeContext`, calibrated the
+    /// same way, so the two stay consistent by construction.
+    ///
+    /// - Parameter edgeFadeFraction: fraction of the viewport faded at top and
+    ///   bottom by `ScrollingTextView`. The target is centred in the *clear*
+    ///   band between the fades rather than at the top, where it would be hard
+    ///   to read.
+    static func phaseForCharacterIndex(
+        characterIndex: Int,
+        script: String,
+        snapshot: ScriptPositionSnapshot,
+        fontSize: Double,
+        edgeFadeFraction: Double = 0.2
+    ) -> CGFloat? {
+        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, fontSize > 0 else { return nil }
+
+        let lineHeight = fontSize * lineHeightRatio
+        guard lineHeight > 0 else { return nil }
+
+        let clampedIndex = min(max(characterIndex, 0), trimmed.count)
+
+        // Without measured content we cannot know the layout, so refuse to
+        // produce a position rather than producing a wrong one.
+        guard snapshot.hasMeasuredContent else { return nil }
+
+        let totalLines = max(1.0, Double(snapshot.contentHeight) / lineHeight)
+        let charactersPerLine = max(1.0, Double(trimmed.count) / totalLines)
+
+        // Where the target sits in the content stack.
+        let targetY = CGFloat(Double(clampedIndex) / charactersPerLine) * CGFloat(lineHeight)
+
+        // Centre it in the readable band: the viewport minus the two fades.
+        let fade = CGFloat(min(max(edgeFadeFraction, 0), 0.49))
+        let clearBand = CGFloat(snapshot.viewportHeight) * (1 - fade * 2)
+        let desiredY = snapshot.startAnchorOffset + max(clearBand, 0) / 2
+
+        // effectiveOffsetY == -(phase mod cycleLength); solve for phase.
+        let phase = targetY - desiredY
+        return phase
+    }
+
+    /// Convert a `QuoteMatch` into a phase to seek to.
+    static func phase(
+        for match: QuoteMatch,
+        script: String,
+        snapshot: ScriptPositionSnapshot,
+        fontSize: Double,
+        edgeFadeFraction: Double = 0.2
+    ) -> CGFloat? {
+        phaseForCharacterIndex(
+            characterIndex: match.characterIndex + match.matchedLength / 2,
+            script: script,
+            snapshot: snapshot,
+            fontSize: fontSize,
+            edgeFadeFraction: edgeFadeFraction
+        )
+    }
 }
