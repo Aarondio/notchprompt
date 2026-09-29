@@ -26,6 +26,19 @@ enum ListenState: Equatable {
     case error(String)
 }
 
+/// A past question and answer, kept so the speaker can recall something that
+/// flashed by.
+struct ListenHistoryEntry: Identifiable, Equatable {
+    let id: UUID
+    let question: String
+    let answer: String
+    let provider: String?
+    /// Verbatim script passage supporting the answer, when one came back.
+    let quote: String?
+    let wasCached: Bool
+    let date: Date
+}
+
 @MainActor
 final class ListenModel: ObservableObject {
     static let shared = ListenModel()
@@ -38,8 +51,23 @@ final class ListenModel: ObservableObject {
     @Published private(set) var lastAnswerWasCached = false
     @Published private(set) var isListening = false
 
-    /// History for debugging / future list view
-    @Published private(set) var history: [(question: String, answer: String, provider: String?, date: Date)] = []
+    /// Recent Q&A, newest first.
+    @Published private(set) var history: [ListenHistoryEntry] = []
+
+    /// Non-nil while the notch is showing a past answer instead of the latest.
+    @Published var browsingIndex: Int?
+
+    /// The entry currently being viewed: the browsed one, or nil if live.
+    var browsedEntry: ListenHistoryEntry? {
+        guard let index = browsingIndex, index >= 0, index < history.count else { return nil }
+        return history[index]
+    }
+
+    /// What the answer card should show — browsed entry wins over the live one.
+    var displayedEntry: ListenHistoryEntry? { browsedEntry }
+
+    /// The supporting quote for whatever is on screen right now.
+    var activeQuote: String? { browsedEntry?.quote ?? lastScriptQuote }
 
     /// Settings
     @Published var autoSendOnSilence: Bool = true {
@@ -174,31 +202,88 @@ final class ListenModel: ObservableObject {
     func dismissAnswer() {
         lastAnswer = ""
         state = .idle
+        browsingIndex = nil
         if continuousListening, !isListening {
             startListening()
         }
     }
 
+    /// The answer the card is currently showing, browsed or live.
+    var activeAnswer: String {
+        browsedEntry?.answer ?? lastAnswer
+    }
+
+    /// Copy whichever answer is on screen, so recalling an old one is useful.
     func copyAnswerToClipboard() {
-        guard !lastAnswer.isEmpty else { return }
+        let text = activeAnswer
+        guard !text.isEmpty else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(lastAnswer, forType: .string)
+        pb.setString(text, forType: .string)
     }
 
+    /// Put the shown answer into the scrolling script, so it can be read aloud.
+    /// Browsed answers are placed after the passage they came from, because
+    /// appending to the end of a long script puts it off-screen mid-talk.
     func pushAnswerToScript() {
-        guard !lastAnswer.isEmpty else { return }
-        // Append answer to script so it scrolls — handy for delivery.
-        let existing = prompter.script.trimmingCharacters(in: .whitespacesAndNewlines)
-        let entry = "\n\n— Answer: \(lastAnswer)"
-        if existing.isEmpty {
-            prompter.script = lastAnswer
-        } else {
-            prompter.script = existing + entry
+        let text = activeAnswer
+        guard !text.isEmpty else { return }
+
+        if let browsed = browsedEntry {
+            let script = prompter.script
+            let marker = "\n\n— Answer: \(browsed.question)\n\(text)\n"
+
+            // Place it after the supporting passage when we can find it,
+            // otherwise fall back to appending.
+            let located = browsed.quote.flatMap {
+                ScriptQuoteLocator.locate(quote: $0, in: script)
+            }
+            if let match = located {
+                let end = min(script.count, match.characterIndex + match.matchedLength)
+                prompter.script = String(script.prefix(end)) + marker + String(script.dropFirst(end))
+            } else {
+                prompter.script = script + marker
+            }
+            return
         }
+
+        let existing = prompter.script.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entry = "\n\n— Answer: \(text)"
+        prompter.script = existing.isEmpty ? text : existing + entry
     }
 
-    func clearHistory() { history.removeAll() }
+
+    func clearHistory() {
+        history.removeAll()
+        browsingIndex = nil
+    }
+
+    // MARK: - History browsing
+
+    /// Move one step further back through history. No-op at the oldest entry.
+    func browseOlder() {
+        guard !history.isEmpty else { return }
+        let next = min((browsingIndex ?? 0) + 1, history.count - 1)
+        browsingIndex = next
+        jumpFailed = false
+    }
+
+    /// Move one step toward the newest. Reaches the live answer and stops.
+    func browseNewer() {
+        guard let current = browsingIndex else { return }
+        let next = current - 1
+        browsingIndex = next < 0 ? nil : next
+        jumpFailed = false
+    }
+
+    /// Return to showing the live answer.
+    func showLatestAnswer() {
+        browsingIndex = nil
+        jumpFailed = false
+    }
+
+    var canBrowseOlder: Bool { !history.isEmpty && (browsingIndex ?? 0) < history.count - 1 }
+    var canBrowseNewer: Bool { (browsingIndex ?? 0) > 0 }
 
     /// Force a gated utterance through to the AI anyway.
     func sendSuppressedAnyway(_ text: String) {
@@ -241,8 +326,11 @@ final class ListenModel: ObservableObject {
     /// somewhere wrong: a bad guess mid-call is worse than no movement.
     func jumpToQuotedLine() {
         jumpFailed = false
-        guard let quote = lastScriptQuote?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !quote.isEmpty else {
+        // Honour the browsed entry's quote when reviewing history, otherwise
+        // the one from the answer currently on screen.
+        let quote = (browsedEntry?.quote ?? lastScriptQuote)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let quote, !quote.isEmpty else {
             jumpFailed = true
             return
         }
@@ -359,8 +447,21 @@ final class ListenModel: ObservableObject {
                 self.lastProvider = self.ai.lastSuccessfulProvider
                 self.lastAnswerWasCached = self.ai.lastAnswerWasCached
                 self.state = .answering(answer)
-                self.history.insert((q, answer, self.lastProvider, Date()), at: 0)
+                self.history.insert(
+                    ListenHistoryEntry(
+                        id: UUID(),
+                        question: q,
+                        answer: answer,
+                        provider: self.lastProvider,
+                        quote: self.lastScriptQuote,
+                        wasCached: self.lastAnswerWasCached,
+                        date: Date()
+                    ),
+                    at: 0
+                )
                 if self.history.count > 30 { self.history.removeLast(self.history.count - 30) }
+                // A new answer means the previously browsed entry is stale.
+                self.browsingIndex = nil
 
                 if self.continuousListening {
                     // Auto-resume listening after brief pause to let user read answer.

@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ScriptQuoteLocatorSelfTests.run()
         IncrementalJSONSelfTests.run()
         AIStructuredAnswerSelfTests.run()
+        ListenHistorySelfTests.run()
         SSESelfTests.run()
         QuestionGateSelfTests.run()
         AnswerCacheSelfTests.run()

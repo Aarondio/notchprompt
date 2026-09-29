@@ -360,15 +360,34 @@ quotes" follow-up would avoid that.
 
 ---
 
-### [ ] Phase 6 — Recall answers in the notch
+### [x] Phase 6 — Recall answers in the notch ✅ *shipped*
 
-History exists in `ListenModel` but only renders in Settings. Add a strip to the
-notch answer card to page through recent Q&A and re-copy, covering the "question
-flashed by" moment.
+History existed but only rendered in Settings, so a question that flashed by
+during a call was unrecoverable.
 
-**Files:** `OverlayView.swift`, `ListenModel.swift`
+- `history` became `[ListenHistoryEntry]`, a proper `Identifiable` type that
+  also carries the supporting `quote` and a `wasCached` flag. This is what makes
+  recall useful: a recalled answer can still be jumped to its script line and
+  copied.
+- Added a **Recall** strip to the answer card when more than one answer exists,
+  and a browsed state (`browsingIndex`) with ◀/▶ paging and a **Latest** button.
+  Browsing always has a way back to the live answer.
+- `Copy`, `To script`, and `Jump` all act on whatever is currently displayed, so
+  recalling an old answer makes it fully actionable rather than read-only.
+- **To script inserts a recalled answer after the passage it came from** rather
+  than appending to the end of the script, which would place it off-screen
+  mid-talk. Falls back to appending when the quote cannot be located.
+- Settings history now shows a `cached` badge and uses the new type.
+
+**Files:** `ListenHistorySelfTests.swift` (new), `ListenModel.swift`,
+`OverlayView.swift`, `ContentView.swift`, `AppDelegate.swift`
 
 **Risk:** Low · **Effort:** ~0.5 day
+
+**Done when:** 4 `ListenHistorySelfTests` assertions pin the index arithmetic —
+walking back stops at the oldest entry, stepping forward returns to live, index
+0 is newest, and an empty history is a safe no-op. Both configurations build
+clean and all self-test groups pass at launch.
 
 ---
 

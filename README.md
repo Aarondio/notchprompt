@@ -38,6 +38,11 @@ an AI assistant that answers background questions while you stay on camera.
 
 - **One-tap capture** — a mic control in the notch (or `⌥⌘L`) transcribes a
   question asked out loud on a call and answers it in the overlay.
+- **Jump to the line** — answers carry a quote from your script, so one tap
+  scrolls there and highlights it. Fabricated quotes are ignored rather than
+  sending you somewhere wrong.
+- **Recall** — page back through earlier answers from the notch if one flashed
+  by, and copy or re-use any of them.
 - **Streamed answers** — the response appears word by word, so you can start
   speaking before it finishes. Reasoning models (DeepSeek R1) are handled
   correctly: their internal reasoning is kept out of the answer you read.
@@ -198,6 +203,11 @@ no intermediary service. Prompts and answers are not logged by Notchprompt.
 **Repeated questions are free.** Cached answers return instantly with a green
 **cached** badge and make no request. Use **Re-ask** to force a fresh one if the
 cached answer was right in shape but wrong in substance.
+
+**Recall earlier answers.** Once you have more than one, a **Recall** strip
+appears on the answer card. Page back with ◀ / ▶ and use **Latest** to return.
+A recalled answer can still be copied, added to your script, or jumped to its
+line.
 
 **Continuous listening** resumes capture after each answer, so you can keep
 taking follow-up questions hands-free.

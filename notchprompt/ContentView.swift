@@ -382,11 +382,14 @@ struct ContentView: View {
                             Spacer()
                             Button("Clear") { listen.clearHistory() }.controlSize(.small)
                         }
-                        ForEach(Array(listen.history.prefix(3).enumerated()), id: \.offset) { _, item in
+                        ForEach(listen.history.prefix(3)) { item in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
                                     Text("Q: \(item.question)").font(.caption).foregroundStyle(.secondary).lineLimit(2)
                                     Spacer(minLength: 4)
+                                    if item.wasCached {
+                                        Text("cached").font(.caption2.weight(.bold)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 2).background(Color.green.opacity(0.7), in: Capsule())
+                                    }
                                     if let p = item.provider {
                                         Text(p).font(.caption2.weight(.semibold)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 2).background(p.lowercased().contains("deepseek") ? Color.purple.opacity(0.7) : Color.blue.opacity(0.7), in: Capsule())
                                     }

@@ -321,6 +321,134 @@ private struct ListenAnswerCard: View {
     @ObservedObject var listen: ListenModel
 
     var body: some View {
+        // While browsing history the live answer is still in `state`, so render
+        // the recalled entry instead.
+        Group {
+            if let entry = listen.browsedEntry {
+                browsedCard(entry)
+            } else {
+                liveCard
+            }
+        }
+        .animation(.spring(response: 0.28, dampingFraction: 0.85), value: listen.state)
+        .animation(.easeInOut(duration: 0.2), value: listen.browsingIndex)
+    }
+
+    // MARK: - Recalled answer
+
+    @ViewBuilder
+    private func browsedCard(_ entry: ListenHistoryEntry) -> some View {
+        card {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.yellow.opacity(0.9))
+                    Text("Earlier answer")
+                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.65))
+                        .textCase(.uppercase)
+                    if let provider = entry.provider {
+                        Text(provider).font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Color.white.opacity(0.18), in: Capsule())
+                    }
+                    Spacer()
+                    Button { listen.showLatestAnswer() } label: {
+                        Text("Latest").font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Color.blue.opacity(0.85), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Back to the most recent answer")
+                }
+
+                Text(entry.answer)
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(4)
+                    .textSelection(.enabled)
+
+                Text("Q: \(entry.question)")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
+
+                if listen.jumpFailed {
+                    Text("Couldn't locate that line in your script.")
+                        .font(.system(size: 9.5, design: .rounded))
+                        .foregroundStyle(.orange.opacity(0.8))
+                }
+
+                HStack(spacing: 6) {
+                    Button { listen.copyAnswerToClipboard() } label: {
+                        Label("Copy", systemImage: "doc.on.doc").font(.system(size: 10, weight: .semibold, design: .rounded))
+                    }
+                    .buttonStyle(ListenCardButtonStyle())
+
+                    Button { listen.pushAnswerToScript() } label: {
+                        Label("To script", systemImage: "arrow.down.doc").font(.system(size: 10, weight: .semibold, design: .rounded))
+                    }
+                    .buttonStyle(ListenCardButtonStyle())
+                    .help("Insert this answer after the passage it came from")
+
+                    if let quote = entry.quote, !quote.isEmpty {
+                        Button { listen.jumpToQuotedLine() } label: {
+                            Label("Jump", systemImage: "arrow.down.to.line").font(.system(size: 10, weight: .semibold, design: .rounded))
+                        }
+                        .buttonStyle(ListenCardButtonStyle())
+                    }
+
+                    Spacer(minLength: 4)
+
+                    Button { listen.browseNewer() } label: {
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 20, height: 18)
+                            .background(listen.canBrowseNewer ? Color.white.opacity(0.16) : Color.white.opacity(0.05), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!listen.canBrowseNewer)
+                    .help("Newer answer")
+                }
+            }
+        }
+    }
+
+    // MARK: - History strip
+
+    @ViewBuilder
+    private var historyStrip: some View {
+        if listen.history.count > 1, listen.browsingIndex == nil {
+            HStack(spacing: 5) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                Text("\(listen.history.count) earlier")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.5))
+                Spacer(minLength: 4)
+                Button { listen.browseOlder() } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left").font(.system(size: 8, weight: .bold))
+                        Text("Recall").font(.system(size: 9, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.white.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(!listen.canBrowseOlder)
+                .help("Look back through previous answers")
+            }
+        }
+    }
+
+    // MARK: - Live answer
+
+    private var liveCard: some View {
         Group {
             switch listen.state {
             case .idle, .requestingPermission:
@@ -429,6 +557,7 @@ private struct ListenAnswerCard: View {
             case .answering(let ans):
                 card {
                     VStack(alignment: .leading, spacing: 6) {
+                        historyStrip
                         HStack(spacing: 6) {
                             Image(systemName: "sparkles").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.yellow.opacity(0.9))
                             Text("Suggested answer").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.6)).textCase(.uppercase)
@@ -484,14 +613,9 @@ private struct ListenAnswerCard: View {
                                 Label("To script", systemImage: "arrow.down.doc").font(.system(size: 10, weight: .semibold, design: .rounded))
                             }
                             .buttonStyle(ListenCardButtonStyle())
+                            .help("Add this answer to your script so it scrolls")
 
-                            Button { listen.refreshLastAnswer() } label: {
-                                Label("Re-ask", systemImage: "arrow.clockwise").font(.system(size: 10, weight: .semibold, design: .rounded))
-                            }
-                            .buttonStyle(ListenCardButtonStyle())
-                            .help("Ask the AI again, ignoring the cached answer")
-
-                            if let quote = listen.lastScriptQuote, !quote.isEmpty {
+                            if let quote = listen.activeQuote, !quote.isEmpty {
                                 Button { listen.jumpToQuotedLine() } label: {
                                     Label("Jump", systemImage: "arrow.down.to.line").font(.system(size: 10, weight: .semibold, design: .rounded))
                                 }
@@ -500,6 +624,14 @@ private struct ListenAnswerCard: View {
                             }
 
                             Spacer(minLength: 4)
+
+                            if listen.browsingIndex == nil {
+                                Button { listen.refreshLastAnswer() } label: {
+                                    Label("Re-ask", systemImage: "arrow.clockwise").font(.system(size: 10, weight: .semibold, design: .rounded))
+                                }
+                                .buttonStyle(ListenCardButtonStyle())
+                                .help("Ask the AI again, ignoring the cached answer")
+                            }
 
                             Button("Listen again") { listen.startListening() }
                                 .font(.system(size: 10, weight: .semibold, design: .rounded))
@@ -547,7 +679,6 @@ private struct ListenAnswerCard: View {
                 }
             }
         }
-        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: listen.state)
     }
 
     @ViewBuilder
