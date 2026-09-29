@@ -303,48 +303,60 @@ sections at that point. Both configurations build clean.
 
 ---
 
-### [~] Phase 5 — Jump to the relevant script line ⚠️ SPIKE PASSED
+### [x] Phase 5 — Jump to the relevant script line ✅ *shipped*
 
-**Step 1 — spike: DONE, and it passed.** The plan said to spike this before
-committing, because mapping a quote to a scroll position is the risky part. It
-turned out to be tractable precisely because Phase 0 and Phase 4 already built
-the calibration.
+**Step 1 — spike: passed.** Mapping a quote to a scroll position turned out to
+be tractable because Phase 0 and Phase 4 had already built the calibration.
+`ScriptQuoteLocator` finds a model-quoted passage via exact → normalised →
+gap-tolerant word-sequence matching, and `ScriptTextMapper.phase(for:)` is the
+inverse, aiming the target at the **centre of the readable band** rather than
+the top where the fade mask would obscure it. Measured accuracy: every messy
+quote located at confidence 1.00, landing within a consistent 3% of the script.
 
-- `ScriptQuoteLocator` finds a model-quoted passage in the script, degrading
-  through exact → normalised → gap-tolerant word sequence, and returns a
-  character offset with a confidence score.
-- `ScriptTextMapper.phase(for:...)` is the inverse mapping, calibrated the same
-  way as the forward one, and aims the target at the **centre of the readable
-  band** rather than the top, where the fade mask would obscure it.
-- Measured accuracy on a 40-section script with deliberately messy quotes
-  (dropped word, no terminal punctuation): every quote located at confidence
-  1.00, landing within a consistent **3% of the script**, against a viewport
-  showing ~6 of ~50 lines. The 3% is a fixed centring offset, not random drift.
+**A real bug the spike caught:** the first word-sequence matcher required a
+*consecutive* run, so it failed on the most common real case — the model
+dropping a word mid-quote. Replaced with gap-tolerant in-order matching, still
+refusing weak matches (3+ words, 0.5 confidence) so a short quote can never
+jump the speaker somewhere random.
 
-**One real bug the spike caught:** the first word-sequence matcher required a
-*consecutive* run, so it failed on the most common real case — the model drops
-or rewords a word mid-quote. Replaced with gap-tolerant in-order matching, which
-now tolerates several dropped words while still refusing weak matches (minimum
-three words and 0.5 confidence), so a short quote can never jump the speaker to
-a random place.
+**Step 2 — structured output: shipped, with honest degradation.**
 
-**Still to do (steps 2 and 3):**
+- `AIChatCompletionRequest` gained an optional `response_format: json_object`.
+- Providers differ, so `AIProviderPreset.supportsJSONMode` is a *hint* only.
+  A 4xx (excluding 401/429) triggers one automatic retry without the parameter,
+  so a wrong guess costs latency, never the answer.
+- `AIStructuredAnswer.parse` is deliberately tolerant: it handles code fences,
+  leading prose, camelCase keys, and truncated streams. Anything unusable falls
+  back to today's plain-text behaviour.
+- The key problem was **streaming vs structured output** — you cannot stream a
+  JSON field you have not parsed yet. `IncrementalJSONStringField` reads the
+  `answer` field out of the partial JSON as it lands, so the answer still
+  streams. It handles escaped quotes, unicode escapes, and a fragment cut
+  mid-escape.
 
-- [ ] Ask the model for `{answer, script_quote}` via `response_format:
-      json_object`, degrading cleanly to plain text where unsupported (Together
-      notably). ⚠️ This is the part most likely to need provider-specific care.
-- [ ] On the answer card, add **Jump to this line**, which locates the quote,
-      seeks the scroller, and highlights the passage.
-- [ ] Replace the append-to-the-end **To script** behaviour with inline
-      placement.
+**Step 3 — jump and highlight: shipped.**
 
-**Files so far:** `ScriptQuoteLocator.swift` (new),
-`ScriptQuoteLocatorSelfTests.swift` (new), `ScriptTextMapper.swift`,
-`AppDelegate.swift`
+- The answer card shows a **Jump** button when a quote came back, plus a
+  non-blocking notice if the line could not be located.
+- Highlighting renders the matched range with a background wash, cleared after
+  six seconds.
+- **The hallucination guard is the important part.** A quote is only used if
+  `ScriptQuoteLocator` finds it in the actual script. A fabricated quote is
+  silently dropped, because jumping to a wrong place mid-call is worse than not
+  jumping. Verified end-to-end: a quote about "the mitochondria" is refused.
 
-**Risk:** Spike resolved the *math* risk (high → low). The remaining risk is
-provider support for structured output, which is bounded — a failure degrades to
-today's behaviour.
+**Files:** `IncrementalJSONStringField.swift` (new),
+`IncrementalJSONSelfTests.swift` (new), `AIStructuredAnswerSelfTests.swift`
+(new), `ScriptQuoteLocator.swift`, `ScriptTextMapper.swift`,
+`ScriptPositionModel.swift`, `ScrollingTextView.swift`, `AIService.swift`,
+`ListenModel.swift`, `OverlayView.swift`, `AppDelegate.swift`
+
+**Risk:** Resolved. The math risk is measured, and the provider-support risk is
+bounded by the automatic retry.
+
+**Known limitation:** the quote is requested on every question when script
+context is on, which costs a few extra output tokens. A scripted "auto-expand
+quotes" follow-up would avoid that.
 
 ---
 

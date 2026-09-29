@@ -212,6 +212,30 @@ final class OverlayWindowController {
     private func targetScreen() -> NSScreen? {
         OverlayGeometry.targetScreen(selectedScreenID: model.selectedScreenID)
     }
+
+    /// Bring the scroller to a character offset in the script and highlight it.
+    /// Returns false when the offset cannot be mapped, so the caller can tell
+    /// the user instead of silently doing nothing.
+    func jumpToCharacterIndex(_ index: Int) -> Bool {
+        let script = model.script
+        guard !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+
+        guard let phase = ScriptTextMapper.phaseForCharacterIndex(
+            characterIndex: index,
+            script: script,
+            snapshot: ScriptPositionModel.shared.snapshot,
+            fontSize: model.fontSize
+        ) else {
+            return false
+        }
+
+        ScriptPositionModel.shared.highlight = ScriptHighlight(
+            range: index..<script.count,
+            token: UUID()
+        )
+        ScriptPositionModel.shared.requestSeek(toPhase: phase)
+        return true
+    }
 }
 
 #if DEBUG

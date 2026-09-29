@@ -20,6 +20,10 @@ struct AIProviderPreset: Identifiable, Hashable {
     let models: [String]
     let keyURL: String
     let keyPlaceholder: String
+    /// Whether the provider is known to accept `response_format: json_object`.
+    /// A false here is a hint only — a 4xx response still triggers a retry
+    /// without the parameter, so a wrong guess costs latency, not the answer.
+    var supportsJSONMode: Bool = false
 
     static let custom = AIProviderPreset(
         id: "custom",
@@ -29,7 +33,8 @@ struct AIProviderPreset: Identifiable, Hashable {
         defaultModel: "",
         models: [],
         keyURL: "",
-        keyPlaceholder: "sk-…"
+        keyPlaceholder: "sk-…",
+        supportsJSONMode: false
     )
 
     static let all: [AIProviderPreset] = [
@@ -39,7 +44,8 @@ struct AIProviderPreset: Identifiable, Hashable {
             defaultModel: "gpt-4o-mini",
             models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"],
             keyURL: "https://platform.openai.com/api-keys",
-            keyPlaceholder: "sk-…"
+            keyPlaceholder: "sk-…",
+            supportsJSONMode: true
         ),
         AIProviderPreset(
             id: "deepseek", name: "DeepSeek", shortName: "DeepSeek",
@@ -47,7 +53,8 @@ struct AIProviderPreset: Identifiable, Hashable {
             defaultModel: "deepseek-chat",
             models: ["deepseek-chat", "deepseek-reasoner"],
             keyURL: "https://platform.deepseek.com/api_keys",
-            keyPlaceholder: "sk-…"
+            keyPlaceholder: "sk-…",
+            supportsJSONMode: true
         ),
         AIProviderPreset(
             id: "groq", name: "Groq", shortName: "Groq",
@@ -55,7 +62,8 @@ struct AIProviderPreset: Identifiable, Hashable {
             defaultModel: "llama-3.3-70b-versatile",
             models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b"],
             keyURL: "https://console.groq.com/keys",
-            keyPlaceholder: "gsk_…"
+            keyPlaceholder: "gsk_…",
+            supportsJSONMode: true
         ),
         AIProviderPreset(
             id: "openrouter", name: "OpenRouter", shortName: "OpenRouter",
@@ -63,7 +71,8 @@ struct AIProviderPreset: Identifiable, Hashable {
             defaultModel: "openai/gpt-4o-mini",
             models: ["openai/gpt-4o-mini", "openai/gpt-4o", "anthropic/claude-3.5-sonnet", "deepseek/deepseek-chat"],
             keyURL: "https://openrouter.ai/keys",
-            keyPlaceholder: "sk-or-…"
+            keyPlaceholder: "sk-or-…",
+            supportsJSONMode: true
         ),
         AIProviderPreset(
             id: "together", name: "Together AI", shortName: "Together",
@@ -71,7 +80,10 @@ struct AIProviderPreset: Identifiable, Hashable {
             defaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
             models: ["meta-llama/Llama-3.3-70B-Instruct-Turbo", "Qwen/Qwen2.5-72B-Instruct-Turbo"],
             keyURL: "https://api.together.xyz/settings/api-keys",
-            keyPlaceholder: "…"
+            keyPlaceholder: "…",
+            // Together has historically rejected response_format; the runtime
+            // retry handles it regardless, so this only avoids a wasted request.
+            supportsJSONMode: false
         ),
         custom
     ]

@@ -65,6 +65,13 @@ final class ListenModel: ObservableObject {
     private let speech = SpeechRecognizerService()
     private let ai = AIService.shared
     private let prompter = PrompterModel.shared
+    private let position = ScriptPositionModel.shared
+    private let aiConfig = AIConfig.shared
+
+    /// A verbatim quote from the script supporting the last answer, when the
+    /// provider returned one. Enables "Jump to this line".
+    @Published private(set) var lastScriptQuote: String?
+    @Published private(set) var jumpFailed = false
 
     /// Latest accumulated reasoning text, kept out of the visible answer.
     private var currentReasoning: String = ""
@@ -228,6 +235,50 @@ final class ListenModel: ObservableObject {
 
     // MARK: Private
 
+    /// Jump the teleprompter to the passage the last answer was drawn from.
+    ///
+    /// Deliberately fails silently into a small notice rather than jumping
+    /// somewhere wrong: a bad guess mid-call is worse than no movement.
+    func jumpToQuotedLine() {
+        jumpFailed = false
+        guard let quote = lastScriptQuote?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !quote.isEmpty else {
+            jumpFailed = true
+            return
+        }
+
+        guard let match = ScriptQuoteLocator.locate(quote: quote, in: prompter.script) else {
+            // The model paraphrased past the point of locating it.
+            jumpFailed = true
+            return
+        }
+
+        guard let phase = ScriptTextMapper.phase(
+            for: match,
+            script: prompter.script,
+            snapshot: position.snapshot,
+            fontSize: prompter.fontSize
+        ) else {
+            // Layout has not been measured yet, so any position would be a guess.
+            jumpFailed = true
+            return
+        }
+
+        position.highlight = ScriptHighlight(
+            range: match.characterIndex..<(match.characterIndex + match.matchedLength),
+            token: UUID()
+        )
+        position.requestSeek(toPhase: phase)
+
+        // Clear the highlight after a few seconds so it does not linger.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if self.position.highlight?.range.lowerBound == match.characterIndex {
+                self.position.clearHighlight()
+            }
+        }
+    }
+
     /// Snapshot where the speaker is right now, for the AI prompt.
     ///
     /// Read synchronously on the main actor at the moment the question is
@@ -299,9 +350,11 @@ final class ListenModel: ObservableObject {
                     scriptContext: context,
                     onDelta: onDelta,
                     onReasoning: onReasoning,
-                    forceRefresh: forceRefresh
+                    forceRefresh: forceRefresh,
+                    wantsScriptQuote: aiConfig.includeScriptAsContext
                 )
                 self.currentReasoning = ""
+                self.lastScriptQuote = self.ai.lastScriptQuote
                 self.lastAnswer = answer
                 self.lastProvider = self.ai.lastSuccessfulProvider
                 self.lastAnswerWasCached = self.ai.lastAnswerWasCached

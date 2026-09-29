@@ -462,6 +462,18 @@ private struct ListenAnswerCard: View {
                                 .foregroundStyle(.white.opacity(0.5))
                                 .lineLimit(1)
                         }
+                        if listen.jumpFailed {
+                            HStack(spacing: 5) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.orange)
+                                Text("Couldn't locate that line in your script.")
+                                    .font(.system(size: 9.5, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.6))
+                                Spacer(minLength: 0)
+                            }
+                        }
+
                         HStack(spacing: 6) {
                             Button { listen.copyAnswerToClipboard() } label: {
                                 Label("Copy", systemImage: "doc.on.doc").font(.system(size: 10, weight: .semibold, design: .rounded))
@@ -478,6 +490,14 @@ private struct ListenAnswerCard: View {
                             }
                             .buttonStyle(ListenCardButtonStyle())
                             .help("Ask the AI again, ignoring the cached answer")
+
+                            if let quote = listen.lastScriptQuote, !quote.isEmpty {
+                                Button { listen.jumpToQuotedLine() } label: {
+                                    Label("Jump", systemImage: "arrow.down.to.line").font(.system(size: 10, weight: .semibold, design: .rounded))
+                                }
+                                .buttonStyle(ListenCardButtonStyle())
+                                .help("Scroll to the line in your script this answer came from")
+                            }
 
                             Spacer(minLength: 4)
 

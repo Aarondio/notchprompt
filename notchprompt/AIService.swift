@@ -33,18 +33,32 @@ struct AIChatMessage: Codable {
 }
 
 struct AIChatCompletionRequest: Codable {
+    struct ResponseFormat: Codable {
+        let type: String
+    }
+
     let model: String
     let messages: [AIChatMessage]
     let temperature: Double?
     let max_tokens: Int?
     let stream: Bool?
+    /// Omitted entirely for providers that reject it.
+    let response_format: ResponseFormat?
 
-    init(model: String, messages: [AIChatMessage], temperature: Double = 0.7, maxTokens: Int = 600, stream: Bool = false) {
+    init(
+        model: String,
+        messages: [AIChatMessage],
+        temperature: Double = 0.7,
+        maxTokens: Int = 600,
+        stream: Bool = false,
+        jsonMode: Bool = false
+    ) {
         self.model = model
         self.messages = messages
         self.temperature = temperature
         self.max_tokens = maxTokens
         self.stream = stream
+        self.response_format = jsonMode ? ResponseFormat(type: "json_object") : nil
     }
 }
 
@@ -75,6 +89,60 @@ struct AIChatCompletionResponse: Codable {
             return r // fallback for DeepSeek reasoner when content is in reasoning field
         }
         return choices?.first?.text
+    }
+}
+
+/// Parsed `{answer, script_quote}` payload.
+struct AIStructuredAnswer {
+    let answer: String
+    let scriptQuote: String?
+
+    /// Tolerant parse. Returns nil when the payload is not usable, in which case
+    /// the caller should fall back to treating the raw text as the answer.
+    static func parse(_ raw: String) -> AIStructuredAnswer? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Models occasionally wrap JSON in a fenced block despite instructions.
+        var candidate = trimmed
+        if candidate.hasPrefix("```") {
+            candidate = candidate
+                .replacingOccurrences(of: "```json", with: "")
+                .replacingOccurrences(of: "```", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let data = candidate.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let answer = object["answer"] as? String,
+           !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let quote = (object["script_quote"] as? String)
+                ?? (object["scriptQuote"] as? String)
+            return AIStructuredAnswer(
+                answer: answer,
+                scriptQuote: AIStructuredAnswer.nonEmpty(quote)
+            )
+        }
+
+        // The field extractor copes with a truncated stream and with leading
+        // prose before the JSON, which JSONSerialization cannot.
+        if let read = IncrementalJSONStringField.read("answer", from: candidate),
+           !read.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let quote = IncrementalJSONStringField.read("script_quote", from: candidate)?.value
+            return AIStructuredAnswer(
+                answer: read.value,
+                scriptQuote: AIStructuredAnswer.nonEmpty(quote)
+            )
+        }
+
+        return nil
+    }
+
+    /// Trim a quote, collapsing anything blank to nil so callers can test
+    /// presence with a plain optional check.
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 }
 
@@ -306,6 +374,9 @@ final class AIService: ObservableObject {
     @Published private(set) var lastSuccessfulProvider: String?
     /// True when the most recent answer was served from the local cache.
     @Published private(set) var lastAnswerWasCached = false
+    /// A passage from the script supporting the last answer, when the provider
+    /// returned one. Used to offer "Jump to this line".
+    @Published private(set) var lastScriptQuote: String?
     private let config = AIConfig.shared
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
@@ -327,7 +398,8 @@ final class AIService: ObservableObject {
         scriptContext: ScriptContext? = nil,
         onDelta: ((String) -> Void)? = nil,
         onReasoning: ((String) -> Void)? = nil,
-        forceRefresh: Bool = false
+        forceRefresh: Bool = false,
+        wantsScriptQuote: Bool = false
     ) async throws -> String {
         // Repeated questions are answered instantly and for free. When we know
         // where the speaker is, the bucket is part of the key so an answer given
@@ -374,6 +446,18 @@ final class AIService: ObservableObject {
                 parts.append("Give the best short spoken answer for this point in their talk.")
             } else {
                 parts.append("Provide the best short spoken answer I can give right now.")
+            }
+
+            if wantsScriptQuote {
+                // `answer` is required to be first so streaming can render it
+                // before the rest of the object arrives.
+                parts.append(
+                    """
+                    Reply with ONLY a JSON object, no other text:
+                    {"answer": "<the short spoken answer>", "script_quote": "<a short verbatim quote from the context above that best supports it, or an empty string>"}
+                    Put "answer" first. Copy the quote exactly as it appears.
+                    """
+                )
             }
 
             return parts.joined(separator: "\n\n")
@@ -426,26 +510,76 @@ final class AIService: ObservableObject {
             }
 
             do {
-                let text: String
-                if let onDelta {
-                    text = try await streamRequest(
-                        url: url, model: a.model, apiKey: a.apiKey, messages: messages,
-                        onDelta: onDelta, onReasoning: onReasoning
-                    )
-                } else {
-                    text = try await performRequest(url: url, model: a.model, apiKey: a.apiKey, messages: messages)
+                var wantStructured = wantsScriptQuote
+                    && AIProviderPreset.best(for: a.label).supportsJSONMode
+                var text: String
+
+                do {
+                    if let onDelta {
+                        text = try await streamRequest(
+                            url: url, model: a.model, apiKey: a.apiKey, messages: messages,
+                            onDelta: onDelta, onReasoning: onReasoning,
+                            jsonMode: wantStructured
+                        )
+                    } else {
+                        text = try await performRequest(
+                            url: url, model: a.model, apiKey: a.apiKey,
+                            messages: messages, jsonMode: wantStructured
+                        )
+                    }
+                } catch let error as AIServiceError {
+                    // A provider may advertise JSON mode in our preset table but
+                    // still reject the parameter. Retry once without it rather
+                    // than failing the whole answer.
+                    guard wantStructured,
+                          case .httpError(let code, _) = error,
+                          (400...499).contains(code), code != 401, code != 429 else {
+                        throw error
+                    }
+                    wantStructured = false
+                    if let onDelta {
+                        text = try await streamRequest(
+                            url: url, model: a.model, apiKey: a.apiKey, messages: messages,
+                            onDelta: onDelta, onReasoning: onReasoning,
+                            jsonMode: false
+                        )
+                    } else {
+                        text = try await performRequest(
+                            url: url, model: a.model, apiKey: a.apiKey,
+                            messages: messages, jsonMode: false
+                        )
+                    }
                 }
+
+                var answer = text
+                var quote: String?
+
+                if wantStructured {
+                    let parsed = AIStructuredAnswer.parse(text)
+                    if let parsed {
+                        // Only trust the quote if it actually exists in the
+                        // script, otherwise a hallucinated quote would send the
+                        // speaker somewhere random.
+                        quote = parsed.scriptQuote.flatMap { candidate -> String? in
+                            guard !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                            return candidate
+                        }
+                        answer = parsed.answer
+                    }
+                }
+
+                lastScriptQuote = quote
                 lastSuccessfulProvider = a.label
                 if config.answerCacheEnabled {
                     AnswerCache.shared.store(
                         question: question,
-                        answer: text,
+                        answer: answer,
                         provider: a.label,
                         model: a.model,
                         contextKey: contextKey
                     )
                 }
-                return text
+                return answer
             } catch {
                 lastError = error
                 // Don't retry on client errors that are likely config mistakes unless we have a fallback
@@ -471,14 +605,16 @@ final class AIService: ObservableObject {
         model: String,
         apiKey: String,
         messages: [AIChatMessage],
-        stream: Bool
+        stream: Bool,
+        jsonMode: Bool = false
     ) throws -> URLRequest {
         let reqBody = AIChatCompletionRequest(
             model: model,
             messages: messages,
             temperature: config.temperature,
             maxTokens: config.maxTokens,
-            stream: stream
+            stream: stream,
+            jsonMode: jsonMode
         )
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -490,8 +626,8 @@ final class AIService: ObservableObject {
 
     // MARK: - Non-streaming
 
-    private func performRequest(url: URL, model: String, apiKey: String, messages: [AIChatMessage]) async throws -> String {
-        let request = try makeRequest(url: url, model: model, apiKey: apiKey, messages: messages, stream: false)
+    private func performRequest(url: URL, model: String, apiKey: String, messages: [AIChatMessage], jsonMode: Bool = false) async throws -> String {
+        let request = try makeRequest(url: url, model: model, apiKey: apiKey, messages: messages, stream: false, jsonMode: jsonMode)
 
         let (data, response): (Data, URLResponse)
         do {
@@ -540,9 +676,10 @@ final class AIService: ObservableObject {
         apiKey: String,
         messages: [AIChatMessage],
         onDelta: @escaping (String) -> Void,
-        onReasoning: ((String) -> Void)?
+        onReasoning: ((String) -> Void)?,
+        jsonMode: Bool = false
     ) async throws -> String {
-        let request = try makeRequest(url: url, model: model, apiKey: apiKey, messages: messages, stream: true)
+        let request = try makeRequest(url: url, model: model, apiKey: apiKey, messages: messages, stream: true, jsonMode: jsonMode)
 
         let bytes: URLSession.AsyncBytes
         let response: URLResponse
@@ -584,13 +721,22 @@ final class AIService: ObservableObject {
                     return
                 }
                 guard let delta = chunk.choices?.first?.delta else { continue }
-                if let content = delta.content, !content.isEmpty {
-                    answer += content
-                    onDelta(answer)
-                }
                 if let r = delta.reasoning_content, !r.isEmpty {
                     reasoning += r
                     onReasoning?(reasoning)
+                }
+                guard let content = delta.content, !content.isEmpty else { continue }
+
+                if jsonMode {
+                    // The payload is a JSON object, so render the `answer` field
+                    // as it lands rather than showing raw JSON to the user.
+                    answer += content
+                    if let read = IncrementalJSONStringField.read("answer", from: answer) {
+                        onDelta(read.value)
+                    }
+                } else {
+                    answer += content
+                    onDelta(answer)
                 }
             }
         }

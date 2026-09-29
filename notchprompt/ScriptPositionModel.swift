@@ -56,9 +56,29 @@ struct ScriptPositionSnapshot: Equatable, Sendable {
     )
 }
 
+/// A range of the script to highlight after jumping to it.
+struct ScriptHighlight: Equatable {
+    let range: Range<Int>
+    /// Bumped per request so repeated jumps to the same range still trigger.
+    let token: UUID
+
+    static func == (lhs: ScriptHighlight, rhs: ScriptHighlight) -> Bool {
+        lhs.token == rhs.token
+    }
+}
+
 @MainActor
 final class ScriptPositionModel: ObservableObject {
     static let shared = ScriptPositionModel()
+
+    // MARK: - Highlight
+
+    /// Currently highlighted passage, set when jumping to a quote.
+    @Published var highlight: ScriptHighlight?
+
+    func clearHighlight() {
+        highlight = nil
+    }
 
     // MARK: - Coarse values, published for UI only
 

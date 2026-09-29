@@ -168,6 +168,10 @@ struct ScrollingTextView: View {
                     position.reset()
                     resetPhase()
                 }
+                .onChange(of: position.highlight?.token) { _, _ in
+                    // A highlight that falls outside the new script is stale.
+                    if position.highlight != nil { publishPosition() }
+                }
                 .onChange(of: jumpBackToken) { _, _ in
                     guard hasContent else { return }
                     hasReachedEndInStopMode = false
@@ -225,11 +229,29 @@ struct ScrollingTextView: View {
     }
 
     private var scrollingContent: some View {
-        Text(text)
+        Text(attributedScrollingText)
             .font(.system(size: fontSize, weight: .regular, design: .monospaced))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The script, with the highlighted passage given a background wash so the
+    /// speaker can see what the answer was drawn from.
+    private var attributedScrollingText: AttributedString {
+        guard let highlight = position.highlight else { return AttributedString(text) }
+        let characters = text.count
+        let lower = min(max(highlight.range.lowerBound, 0), characters)
+        let upper = min(max(highlight.range.upperBound, lower), characters)
+        guard upper > lower else { return AttributedString(text) }
+
+        var prefix = AttributedString(String(text.prefix(lower)))
+        var middle = AttributedString(String(text.dropFirst(lower).prefix(upper - lower)))
+        middle.backgroundColor = .yellow.opacity(0.28)
+        middle.foregroundColor = .white
+        prefix += middle
+        prefix += AttributedString(String(text.dropFirst(upper)))
+        return prefix
     }
 
     private var edgeFadeMask: some View {
