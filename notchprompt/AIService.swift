@@ -331,9 +331,10 @@ final class AIService: ObservableObject {
                 // Don't retry on client errors that are likely config mistakes unless we have a fallback
                 let isLast = idx == attempts.count - 1
                 if isLast { break }
-                // For transient/server/network errors, fall through to next provider
-                // Log attempt failure for debugging
-                print("[AIService] Primary (\(a.label)) failed: \(error.localizedDescription) — trying fallback (\(attempts[idx+1].label))…")
+                // For transient/server/network errors, fall through to the next provider.
+#if DEBUG
+                print("[AIService] Primary (\(a.label)) failed: \(error.localizedDescription) — trying fallback (\(attempts[idx + 1].label))…")
+#endif
                 continue
             }
         }
