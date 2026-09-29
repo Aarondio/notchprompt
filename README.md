@@ -45,8 +45,10 @@ an AI assistant that answers background questions while you stay on camera.
   OpenRouter, Together AI, or any custom OpenAI-compatible endpoint.
 - **Automatic fallback provider** — e.g. DeepSeek — retried whenever the primary
   fails (rate limit, 5xx, network error, or invalid key).
-- Hands-free or manual send, continuous listening for follow-up questions, and
-  one-tap **Copy** / **To script** on the answer.
+- **Hands-free or manual send**, with a tunable pause-before-sending, and
+  continuous listening for follow-up questions.
+- **Spends less.** Small talk and filler are filtered out before a request is
+  made, and answers can be re-used from a local cache.
 - API keys are stored in the **Keychain**, never in preferences.
 - Uses Apple's on-device speech model when available, otherwise Apple's servers.
 
@@ -160,15 +162,21 @@ no intermediary service. Prompts and answers are not logged by Notchprompt.
 
 1. Tap the mic (or `⌥⌘L`). The live transcript appears in the notch.
 2. Ask your question out loud.
-3. With **Auto-send after pause** enabled (default), about 1.4s of silence sends
-   the question automatically. Disable it to send manually by tapping the mic a
-   second time.
+3. With **Auto-send after pause** enabled (default), the end of your sentence
+   triggers the answer automatically. Disable it to send manually by tapping the
+   mic a second time. **Pause before sending** is adjustable if the room is noisy
+   or you talk quickly.
 4. The answer appears in a card, badged with the provider that answered. It
    streams in word by word, so you can start speaking before it finishes. Use
    **Copy** to grab it, or **To script** to append it to your scrolling script.
 
 **Continuous listening** resumes capture after each answer, so you can keep
 taking follow-up questions hands-free.
+
+**About the question filter.** With *Skip things that aren't questions* on (the
+default), filler like "sounds good" is not sent to the AI — this avoids
+pointless requests. If a real question does get skipped, the notch offers
+**Send anyway**, and tapping the mic always sends regardless.
 
 If no provider is configured, tapping the mic returns an error card with an
 **AI Providers & Keys** shortcut to the setup panel.

@@ -159,8 +159,36 @@ struct ContentView: View {
                 // Listen behavior toggles
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Auto-send after pause ( hands-free )", isOn: $listen.autoSendOnSilence)
-                    Text("If on, a ~1.4s silence auto-sends to AI. If off, tap the mic again to send.")
+                    Text("If on, a pause ends the utterance and sends it. Turn off to tap the mic again to send.")
                         .font(.caption2).foregroundStyle(.secondary)
+
+                    sliderRow(
+                        title: "Pause before sending",
+                        valueText: String(format: "%.1fs", listen.silenceThreshold),
+                        slider: Slider(value: $listen.silenceThreshold, in: 0.6...3.0, step: 0.1)
+                    )
+                    Text("Lower is snappier but may cut you off mid-sentence. Raise it in a noisy room.")
+                        .font(.caption2).foregroundStyle(.secondary)
+
+                    Toggle("Skip things that aren't questions", isOn: $listen.questionGateEnabled)
+                    Text("Small talk and filler are not sent to the AI, which avoids pointless requests. You can always force one through.")
+                        .font(.caption2).foregroundStyle(.secondary)
+
+                    if listen.questionGateEnabled {
+                        sliderRow(
+                            title: "Always send if longer than",
+                            valueText: "\(listen.questionGateMinWords) words",
+                            slider: Slider(
+                                value: Binding(
+                                    get: { Double(listen.questionGateMinWords) },
+                                    set: { listen.questionGateMinWords = Int($0.rounded()) }
+                                ),
+                                in: 3...15,
+                                step: 1
+                            )
+                        )
+                    }
+
                     Toggle("Continuous listening (interview mode)", isOn: $listen.continuousListening)
                     Text("Keeps listening after each answer for the next question.")
                         .font(.caption2).foregroundStyle(.secondary)

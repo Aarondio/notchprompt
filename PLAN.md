@@ -162,23 +162,46 @@ Release both build clean; capture exclusion still `sharingState=0`.
 
 ---
 
-### [ ] Phase 2 — Question gate and tunable silence
+### [x] Phase 2 — Question gate and tunable silence ✅ *shipped*
 
 **Goal:** stop paying for things that are not questions.
 
-Today any speech followed by ~1.4s of silence becomes a billable request.
+- Added `QuestionGate`, a pure function: send if the utterance ends in `?`, or
+  contains an interrogative word, or reaches a word threshold. Deliberately
+  **permissive** — the goal is skipping small talk, not outsmarting the speaker.
+- The gate only ever suppresses **automatic** sends. A manual stop always goes
+  through, so the user always has the final say.
+- When the gate suppresses, the notch shows a `gateSuppressed` card offering
+  **Send anyway** / **Keep listening**, and deliberately leaves the mic running
+  so the next pause is judged on its own merits.
+- `silenceThreshold` is now a published setting (0.6–3.0s) replacing the
+  hardcoded 1.4, plus a `questionGateMinWords` slider (3–15).
 
-- `QuestionGate` — pure, trivially testable. Send if the utterance ends in `?`,
-  begins interrogatively, or exceeds a word threshold. **Default permissive**;
-  never silently swallow a real question.
-- Settings: silence-threshold slider (replaces the hardcoded `1.4`), gate toggle,
-  word threshold.
-- **Send anyway** escape hatch on the error card.
-
-**Files:** `QuestionGate.swift` (new), `SpeechRecognizerService.swift`,
-`ListenModel.swift`, `ContentView.swift`
+**Files:** `QuestionGate.swift` (new), `QuestionGateSelfTests.swift` (new),
+`ListenModel.swift`, `OverlayView.swift`, `ContentView.swift`, `AppDelegate.swift`
 
 **Risk:** Low · **Effort:** ~0.5 day · **Pays for itself immediately**
+
+**Two bugs the tests caught — both would have shipped otherwise**
+
+1. **The gate would have sent everything.** The first version treated a trailing
+   `.` or `!` like a `?`. But the recognizer runs with `addsPunctuation = true`,
+   so nearly every utterance ends in a period — the check would have disabled the
+   entire feature. Now only `?` counts.
+2. **Proper nouns read as questions.** Contraction handling originally used
+   prefix matching, so `"Howard's"` matched `how` and `"maya's"` matched `may` —
+   meaning a two-word sentence naming a colleague would be sent on every call.
+   Matching is now on the contraction *suffix* (`"don't"` → `do`, `"what's"` →
+   `what`) with an explicit map for the irregular forms (`"won't"` → `will`).
+   A length heuristic was tried and rejected: `"dont"`→`do` and `"maya's"`→`may`
+   are structurally identical, so only the suffix distinguishes them.
+
+**Done when:** 12 `QuestionGateSelfTests` assertions cover question marks,
+interrogative openers, contractions, proper-noun rejection, sentence-final
+periods, the word threshold, small talk, casing/whitespace, empty input, and a
+representative set of real sales questions. Verified with a standalone harness
+(`swiftc QuestionGate.swift QuestionGateSelfTests.swift`) in addition to the
+in-app DEBUG run. Both configurations build clean.
 
 ---
 

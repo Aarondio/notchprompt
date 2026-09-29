@@ -269,6 +269,7 @@ private struct ListenControlButton: View {
         case .requestingPermission: return "mic.badge.plus"
         case .listening: return "waveform"
         case .thinking: return "hourglass"
+        case .gateSuppressed: return "questionmark.bubble.dotted"
         case .streaming: return "ellipsis.bubble.fill"
         case .answering: return "checkmark.circle.fill"
         case .error: return "exclamationmark.triangle.fill"
@@ -308,6 +309,7 @@ private struct ListenControlButton: View {
         case .requestingPermission: return "Requesting mic permission\u{2026}"
         case .listening: return "Listening\u{2026} tap again to send to AI, or wait for auto-send"
         case .thinking(let q): return "Thinking about: \(q.prefix(60))"
+        case .gateSuppressed: return "Skipped — didn't sound like a question"
         case .streaming: return "Answer is streaming in…"
         case .answering: return "Answer ready \u{2014} tap to listen for the next question"
         case .error(let m): return m
@@ -358,6 +360,42 @@ private struct ListenAnswerCard: View {
                             Text(q).font(.system(size: 11, weight: .regular, design: .rounded)).foregroundStyle(.white.opacity(0.85)).lineLimit(2)
                         }
                         Spacer()
+                    }
+                }
+            case .gateSuppressed(let text):
+                card {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "questionmark.bubble.dotted")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.yellow.opacity(0.9))
+                            Text("Not sent").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.7)).textCase(.uppercase)
+                            Spacer()
+                            Button { listen.dismissAnswer() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.7)) }
+                                .buttonStyle(.plain)
+                        }
+                        Text("Didn't sound like a question, so no request was made.")
+                            .font(.system(size: 11, weight: .regular, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(text)
+                            .font(.system(size: 10.5, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(2)
+                        HStack(spacing: 6) {
+                            Button { listen.sendSuppressedAnyway(text) } label: {
+                                Label("Send anyway", systemImage: "paperplane.fill")
+                                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(ListenCardButtonStyle())
+
+                            Button { listen.startListening() } label: {
+                                Text("Keep listening").font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(ListenCardButtonStyle())
+
+                            Spacer(minLength: 4)
+                        }
                     }
                 }
             case .streaming(let partial, let reasoning):

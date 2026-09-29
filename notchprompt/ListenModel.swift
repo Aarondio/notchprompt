@@ -16,6 +16,9 @@ enum ListenState: Equatable {
     case requestingPermission
     case listening(transcript: String)
     case thinking(question: String)
+    /// The gate decided this was probably not a question, so nothing was sent.
+    /// The user can still force it through.
+    case gateSuppressed(String)
     /// Answer is arriving token by token. `reasoning` is the model's internal
     /// reasoning (DeepSeek R1) and is never shown as the answer.
     case streaming(answer: String, reasoning: String)
@@ -46,6 +49,14 @@ final class ListenModel: ObservableObject {
     /// Stream answers so the first words appear immediately. Turn off to force
     /// a single non-streamed response.
     @Published var streamAnswers: Bool = true
+    /// Skip small talk instead of spending a request on it.
+    @Published var questionGateEnabled: Bool = true
+    /// Utterance length at or above which we send regardless of wording.
+    @Published var questionGateMinWords: Int = 6
+    /// How long a pause must be before an utterance is considered finished.
+    @Published var silenceThreshold: TimeInterval = 1.4 {
+        didSet { speech.silenceThreshold = silenceThreshold }
+    }
 
     /// Notch-native AI provider/key setup panel.
     @Published var isAISetupVisible = false
@@ -61,6 +72,7 @@ final class ListenModel: ObservableObject {
 
     private init() {
         speech.autoSendOnSilence = autoSendOnSilence
+        speech.silenceThreshold = silenceThreshold
 
         speech.objectWillChange
             .receive(on: RunLoop.main)
@@ -180,6 +192,11 @@ final class ListenModel: ObservableObject {
 
     func clearHistory() { history.removeAll() }
 
+    /// Force a gated utterance through to the AI anyway.
+    func sendSuppressedAnyway(_ text: String) {
+        submitQuestion(text, auto: false)
+    }
+
     // MARK: - AI setup panel
 
     func openAISetup() {
@@ -208,6 +225,19 @@ final class ListenModel: ObservableObject {
             state = isListening ? .listening(transcript: q) : .idle
             return
         }
+
+        // The gate only ever suppresses *automatic* sends. A manual stop always
+        // goes through, so the user always has the final say.
+        if auto, questionGateEnabled {
+            let gate = QuestionGate(minimumWords: questionGateMinWords)
+            if gate.decision(for: q) == .suppress {
+                // Deliberately return before stopping the mic, so the user can
+                // keep talking and the next pause will be judged on its own.
+                state = .gateSuppressed(q)
+                return
+            }
+        }
+
         // Deduplicate rapid auto-fires
         if q == lastQuestion, auto { return }
 
