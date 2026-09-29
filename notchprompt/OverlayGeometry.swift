@@ -16,11 +16,37 @@ import CoreGraphics
 enum OverlayGeometry {
     // MARK: - Width rules
 
-    static let minWidth: Double = 300
+    static let minWidth: Double = 340
     static let maxWidth: Double = 1400
     /// Fraction of the target display the overlay may occupy.
     static let screenFraction: Double = 0.9
     static let widthStep: Double = 40
+
+    /// Width the transport control row needs before it starts to overflow.
+    ///
+    /// Derived from the layout in `OverlayView`: three buttons in the left
+    /// group, six in the right, plus capsule padding, inter-group spacing and
+    /// the row's own outer padding. **Keep in sync when adding or removing a
+    /// control button** — `OverlayGeometrySelfTests` fails if the row outgrows
+    /// `minWidth`, which is the tripwire for forgetting to raise the floor.
+    static let controlRowMinimumWidth: Double = controlRowWidth()
+
+    private static func controlRowWidth() -> Double {
+        // Every local is explicitly typed: the arithmetic below is written as a
+        // single chain otherwise, and the type checker gives up on it.
+        let buttonWidth: Double = 22
+        let buttonSpacing: Double = 6
+        let capsulePadding: Double = 16
+        let leftButtons: Double = 3    // play/pause, jump back, mic
+        let rightButtons: Double = 6   // paste, clear, speed -, speed +, gear, quit
+        let interGroupGaps: Double = 24
+        let outerPadding: Double = 20
+
+        let left: Double = leftButtons * buttonWidth + (leftButtons - 1) * buttonSpacing + capsulePadding
+        let right: Double = rightButtons * buttonWidth + (rightButtons - 1) * buttonSpacing + capsulePadding
+        let total: Double = left + right + interGroupGaps + outerPadding
+        return total
+    }
 
     struct Preset: Identifiable, Equatable {
         let id: String

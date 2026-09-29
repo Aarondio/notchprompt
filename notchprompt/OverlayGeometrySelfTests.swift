@@ -10,12 +10,34 @@ import Foundation
 
 enum OverlayGeometrySelfTests {
     static func run() {
+        assertFloorFitsTheControlRow()
         assertRangeNeverEmptyOnAnyScreen()
         assertRangeScalesWithScreen()
         assertClampPreventsOverflow()
         assertClampEnforcesFloor()
         assertOversizedScreensStillCapped()
         assertPresetsAreOrderedAndReachable()
+    }
+
+    /// Tripwire: if the transport row grows — a new control button, say — the
+    /// minimum width has to be raised with it, or the controls overflow the
+    /// panel at its narrowest setting.
+    private static func assertFloorFitsTheControlRow() {
+        assert(
+            OverlayGeometry.minWidth >= OverlayGeometry.controlRowMinimumWidth,
+            """
+            The notch floor (\(Int(OverlayGeometry.minWidth))pt) is narrower than the \
+            control row needs (\(Int(OverlayGeometry.controlRowMinimumWidth))pt); \
+            the controls will overflow at the minimum width. Raise \
+            OverlayGeometry.minWidth, or reduce the control count in OverlayView.
+            """
+        )
+        // And the floor should leave a little breathing room rather than
+        // sitting exactly on the constraint.
+        assert(
+            OverlayGeometry.minWidth - OverlayGeometry.controlRowMinimumWidth >= 16,
+            "The notch floor should leave headroom around the control row"
+        )
     }
 
     private static func assertRangeNeverEmptyOnAnyScreen() {

@@ -131,6 +131,11 @@ The permitted range follows the target display, capped at 90% of its width, so
 the panel can never overflow the edges of a smaller screen. Presets that the
 current display is too narrow to reach are dimmed.
 
+The minimum width is **340pt**, which is the narrowest the transport control row
+can render without its buttons colliding. The app checks this invariant on every
+launch in debug builds, so adding a control button without raising the floor
+fails loudly rather than shipping a broken layout.
+
 ## Notch Layout
 
 ```
