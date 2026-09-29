@@ -56,6 +56,10 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     @Published var speedPointsPerSecond: Double = 80
     @Published var fontSize: Double = 20
     @Published var overlayWidth: Double = 600
+    /// Width of the display the overlay targets. Cached because deriving it
+    /// walks `NSScreen.screens`, which is far too heavy to run on every
+    /// slider frame. Refreshed when displays change.
+    @Published private(set) var targetScreenWidth: Double = 1440
     @Published var overlayHeight: Double = 150
     /// Transient, non-persisted height used while a temporary panel (e.g. the
     /// AI provider setup) needs more room. Never written to UserDefaults.
@@ -71,6 +75,30 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     /// Height actually used for the overlay window (transient override wins).
     var effectiveOverlayHeight: Double {
         transientOverlayHeight ?? overlayHeight
+    }
+
+    /// Width range permitted on the target display.
+    var overlayWidthRange: ClosedRange<Double> {
+        OverlayGeometry.widthRange(forScreenWidth: targetScreenWidth)
+    }
+
+    /// Re-read the target display width. Call when displays change.
+    func refreshTargetScreenWidth() {
+        let width = OverlayGeometry.targetScreenWidth(selectedScreenID: selectedScreenID)
+        if abs(width - targetScreenWidth) > 0.5 {
+            targetScreenWidth = width
+        }
+    }
+
+    /// Nudge the width, used by the ⌥⌘[ / ⌥⌘] shortcuts.
+    func adjustOverlayWidth(by delta: Double) {
+        let range = overlayWidthRange
+        let next = (overlayWidth + delta).rounded()
+        overlayWidth = min(max(next, range.lowerBound), range.upperBound)
+    }
+
+    func setOverlayWidth(_ width: Double) {
+        overlayWidth = min(max(width, overlayWidthRange.lowerBound), overlayWidthRange.upperBound)
     }
 
     // Used to signal an immediate reset to the scrolling view.
@@ -305,7 +333,11 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         shouldUseCountdownOnNextStart = true
         speedPointsPerSecond = clampedSpeed(defaults.object(forKey: DefaultsKey.speed) as? Double ?? speedPointsPerSecond)
         fontSize = clamp(defaults.object(forKey: DefaultsKey.fontSize) as? Double ?? fontSize, lower: 12, upper: 40)
-        overlayWidth = clamp(defaults.object(forKey: DefaultsKey.overlayWidth) as? Double ?? overlayWidth, lower: 400, upper: 1200)
+        overlayWidth = clamp(
+            defaults.object(forKey: DefaultsKey.overlayWidth) as? Double ?? overlayWidth,
+            lower: OverlayGeometry.minWidth,
+            upper: OverlayGeometry.maxWidth
+        )
         // Migration: earlier builds could persist the temporary AI-setup height
         // (380). Anything above the supported range is stale — reset to default.
         let storedHeight = defaults.object(forKey: DefaultsKey.overlayHeight) as? Double ?? overlayHeight

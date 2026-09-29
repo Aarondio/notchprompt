@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var speedUpItem: NSMenuItem?
     private var speedDownItem: NSMenuItem?
     private var toggleListenItem: NSMenuItem?
+    private var narrowerNotchItem: NSMenuItem?
+    private var widerNotchItem: NSMenuItem?
     private var shortcutWarningItem: NSMenuItem?
     private var shortcutWarningDetailItem: NSMenuItem?
     private var shortcutWarningSeparator: NSMenuItem?
@@ -36,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.loadFromDefaults()
+        // Resolve the target display before the first layout so the width range
+        // reflects the real screen rather than the fallback.
+        model.refreshTargetScreenWidth()
         overlayController = OverlayWindowController(model: model)
         overlayController?.setVisible(model.isOverlayVisible)
 
@@ -45,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         SSESelfTests.run()
         QuestionGateSelfTests.run()
         AnswerCacheSelfTests.run()
+        OverlayGeometrySelfTests.run()
         runShortcutSelfChecks()
 #endif
 
@@ -113,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 #if DEBUG
                 print("[Notchprompt] didChangeScreenParametersNotification")
 #endif
+                self?.model.refreshTargetScreenWidth()
                 self?.overlayController?.reposition()
             }
             .store(in: &cancellables)
@@ -246,6 +253,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(toggleListen)
         toggleListenItem = toggleListen
 
+        let narrower = NSMenuItem(
+            title: "Narrower Notch",
+            action: #selector(narrowerNotch),
+            keyEquivalent: ShortcutCommand.narrowerNotch.keyEquivalent
+        )
+        narrower.target = self
+        narrower.keyEquivalentModifierMask = shortcutModifiers
+        menu.addItem(narrower)
+        narrowerNotchItem = narrower
+
+        let wider = NSMenuItem(
+            title: "Wider Notch",
+            action: #selector(widerNotch),
+            keyEquivalent: ShortcutCommand.widerNotch.keyEquivalent
+        )
+        wider.target = self
+        wider.keyEquivalentModifierMask = shortcutModifiers
+        menu.addItem(wider)
+        widerNotchItem = wider
+
         refreshShortcutWarningItems(in: menu)
 
         menu.addItem(.separator())
@@ -333,6 +360,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ListenModel.shared.toggleListen()
     }
 
+    @objc private func narrowerNotch() {
+        model.adjustOverlayWidth(by: -OverlayGeometry.widthStep)
+    }
+
+    @objc private func widerNotch() {
+        model.adjustOverlayWidth(by: OverlayGeometry.widthStep)
+    }
+
     @objc func openMainWindowFromOverlay() {
         openMainWindow()
     }
@@ -379,6 +414,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             model.adjustSpeed(delta: -PrompterModel.speedStep)
         case .toggleListen:
             ListenModel.shared.toggleListen()
+        case .narrowerNotch:
+            model.adjustOverlayWidth(by: -OverlayGeometry.widthStep)
+        case .widerNotch:
+            model.adjustOverlayWidth(by: OverlayGeometry.widthStep)
         }
     }
 
@@ -464,6 +503,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         if menuItem === speedUpItem || menuItem === speedDownItem {
+            return true
+        }
+
+        if menuItem === narrowerNotchItem {
+            menuItem.title = "Narrower Notch  (\(Int(model.overlayWidth))pt)"
+            return true
+        }
+
+        if menuItem === widerNotchItem {
+            menuItem.title = "Wider Notch  (\(Int(model.overlayWidth))pt)"
             return true
         }
 

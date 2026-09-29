@@ -110,9 +110,26 @@ If it is still blocked:
 | `⌥⌘J` | Jump back 5s |
 | `⌥⌘O` | Toggle overlay visibility |
 | `⌥⌘L` | Listen — start/stop mic, send captured question to AI |
+| `⌥⌘[` | Narrower notch |
+| `⌥⌘]` | Wider notch |
 | `⌥⌘=` | Increase speed |
 | `⌥⌘-` | Decrease speed |
 | `⌥⌘H` | Hidden from capture (enforced — shown for reference only) |
+
+## Notch Size
+
+The overlay width can be changed three ways:
+
+- **Presets** in `Settings → Appearance` — Compact (420pt), Default (600pt),
+  Wide (900pt), Ultra (1200pt).
+- **Slider** over the same range, for fine control.
+- **Keyboard** — `⌥⌘[` and `⌥⌘]` nudge the width in 40pt steps, so you can
+  resize without opening Settings mid-call. The status menu items show the
+  current width.
+
+The permitted range follows the target display, capped at 90% of its width, so
+the panel can never overflow the edges of a smaller screen. Presets that the
+current display is too narrow to reach are dimmed.
 
 ## Notch Layout
 

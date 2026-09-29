@@ -127,6 +127,39 @@ struct ContentView: View {
                     valueText: "\(Int(model.overlayHeight))",
                     slider: Slider(value: $model.overlayHeight, in: 120...300, step: 2)
                 )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("Overlay width")
+                            .frame(width: rowLabelWidth, alignment: .leading)
+                        HStack(spacing: 6) {
+                            ForEach(OverlayGeometry.presets) { preset in
+                                Button(preset.name) {
+                                    model.setOverlayWidth(preset.width)
+                                }
+                                .controlSize(.small)
+                                .buttonStyle(.bordered)
+                                .disabled(
+                                    // Dim presets the current display cannot reach.
+                                    preset.width > model.overlayWidthRange.upperBound
+                                )
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    HStack {
+                        Slider(value: $model.overlayWidth, in: model.overlayWidthRange, step: 10)
+                            .frame(width: valueWidth * 7)
+                        Text("\(Int(model.overlayWidth))pt")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 52, alignment: .trailing)
+                            .font(.caption.monospaced())
+                        Spacer(minLength: 0)
+                    }
+                    Text("Range follows the target display (\(Int(model.overlayWidthRange.lowerBound))–\(Int(model.overlayWidthRange.upperBound))pt on this screen). Nudge without opening Settings with \(String(UnicodeScalar(0x2325)!))\(String(UnicodeScalar(0x2318)!))[ and \(String(UnicodeScalar(0x2325)!))\(String(UnicodeScalar(0x2318)!))].")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -419,6 +452,8 @@ struct ContentView: View {
                 shortcutRow("Option+Command+=", "Increase speed")
                 shortcutRow("Option+Command+-", "Decrease speed")
                 shortcutRow("Option+Command+L", "Listen — toggle mic / send to AI")
+        shortcutRow("Option+Command+[", "Narrower notch")
+        shortcutRow("Option+Command+]", "Wider notch")
             }
         }
     }

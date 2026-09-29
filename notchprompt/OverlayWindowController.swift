@@ -142,7 +142,12 @@ final class OverlayWindowController {
     func reposition() {
         guard let screen = targetScreen() ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
-        let width = CGFloat(model.overlayWidth)
+        // Clamp to the target display so a wide setting can never push the
+        // panel off both edges of a narrow screen.
+        let width = OverlayGeometry.clamp(
+            width: model.overlayWidth,
+            forScreenWidth: screen.frame.width
+        )
         let desiredHeight = CGFloat(model.effectiveOverlayHeight)
 
         let x = (screen.frame.midX - (width / 2)).rounded()
@@ -205,32 +210,7 @@ final class OverlayWindowController {
     }
 
     private func targetScreen() -> NSScreen? {
-        let screens = NSScreen.screens
-        let descriptors = screens.compactMap { screen -> ScreenDescriptor? in
-            guard let id = displayID(for: screen) else { return nil }
-            return ScreenDescriptor(
-                id: id,
-                localizedName: screen.localizedName,
-                isBuiltIn: CGDisplayIsBuiltin(id) != 0,
-                isMenuBarScreen: id == CGMainDisplayID()
-            )
-        }
-
-        guard let targetID = ScreenSelection.chooseScreenID(
-            selectedScreenID: model.selectedScreenID,
-            screens: descriptors
-        ) else {
-            return nil
-        }
-
-        return screens.first(where: { displayID(for: $0) == targetID })
-    }
-
-    private func displayID(for screen: NSScreen) -> CGDirectDisplayID? {
-        guard let n = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-            return nil
-        }
-        return CGDirectDisplayID(n.uint32Value)
+        OverlayGeometry.targetScreen(selectedScreenID: model.selectedScreenID)
     }
 }
 
