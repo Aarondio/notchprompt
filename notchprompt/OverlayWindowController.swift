@@ -61,13 +61,15 @@ final class OverlayWindowController {
     private let padding: CGFloat = 0
     private let inMenuBarStrip: Bool = true
     private var lastFrame: NSRect?
+    private var privacyEnforceTimer: Timer?
+    private var sharingTypeObservation: NSKeyValueObservation?
 
     init(model: PrompterModel) {
         self.model = model
 
         let hosting = ClickThroughHostingView(rootView: OverlayView(model: model))
 
-        let initialFrame = NSRect(x: 0, y: 0, width: model.overlayWidth, height: model.overlayHeight)
+        let initialFrame = NSRect(x: 0, y: 0, width: model.overlayWidth, height: model.effectiveOverlayHeight)
         let panel = OverlayPanel(
             contentRect: initialFrame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -88,12 +90,28 @@ final class OverlayWindowController {
         panel.titlebarAppearsTransparent = true
         panel.ignoresMouseEvents = false
         panel.becomesKeyOnlyIfNeeded = false
-        panel.sharingType = model.privacyModeEnabled ? .none : .readOnly
+        // Enforced hidden from screen capture / screen sharing / screen recording:
+        // .none is best-effort but is respected by CGWindowList, ScreenCaptureKit, Zoom/Meet.
+        // We force .none regardless of the legacy privacy toggle so the notch is never capturable.
+        panel.sharingType = .none
 
         panel.contentView = hosting
         self.panel = panel
 
         reposition()
+        // KVO hard-enforce: if any code (or OS) flips sharingType away from .none, snap it back.
+        sharingTypeObservation = panel.observe(\.sharingType, options: [.new]) { p, _ in
+            if p.sharingType != .none {
+                Task { @MainActor in p.sharingType = .none }
+            }
+        }
+        // Periodic re-assertion: some capture stacks poll window properties; keep .none pinned.
+        privacyEnforceTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak panel] _ in
+            Task { @MainActor in
+                if panel?.sharingType != NSWindow.SharingType.none { panel?.sharingType = NSWindow.SharingType.none }
+            }
+        }
+        RunLoop.main.add(privacyEnforceTimer!, forMode: .common)
 
 #if DEBUG
         debugDump(reason: "init-after-reposition", intendedScreen: targetScreen(), calc: nil)
@@ -107,10 +125,12 @@ final class OverlayWindowController {
         if isVisible {
             // Ensure the panel can reappear even when the app is backgrounded.
             reposition()
+            panel.sharingType = .none
             panel.level = .screenSaver
             panel.alphaValue = 1.0
             panel.orderFrontRegardless()
             panel.makeKeyAndOrderFront(nil)
+            panel.sharingType = .none
         } else {
             panel.orderOut(nil)
         }
@@ -123,7 +143,7 @@ final class OverlayWindowController {
         guard let screen = targetScreen() ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
         let width = CGFloat(model.overlayWidth)
-        let desiredHeight = CGFloat(model.overlayHeight)
+        let desiredHeight = CGFloat(model.effectiveOverlayHeight)
 
         let x = (screen.frame.midX - (width / 2)).rounded()
 
@@ -156,6 +176,8 @@ final class OverlayWindowController {
         panel.setFrame(targetFrame, display: true, animate: shouldAnimate)
         lastFrame = targetFrame
         
+        // Re-enforce hidden-from-capture after every move (some capturers poll window props)
+        panel.sharingType = .none
         // Ensure level is re-applied in case something reset it
         panel.level = .screenSaver
         panel.alphaValue = 1.0
@@ -170,10 +192,12 @@ final class OverlayWindowController {
     }
 
     func setPrivacyMode(_ enabled: Bool) {
-        panel.sharingType = enabled ? .none : .readOnly
+        // Privacy is now always-on: notch is never capturable by screen recorders/sharing.
+        // Keep API compat but ignore `enabled` — we always force .none.
+        panel.sharingType = .none
 #if DEBUG
         debugDump(
-            reason: "setPrivacyMode enabled=\(enabled) sharingType=\(panel.sharingType.rawValue)",
+            reason: "setPrivacyMode enforced .none (requested enabled=\(enabled)) sharingType=\(panel.sharingType.rawValue)",
             intendedScreen: targetScreen(),
             calc: nil
         )

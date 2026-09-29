@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var privacyModeItem: NSMenuItem?
     private var speedUpItem: NSMenuItem?
     private var speedDownItem: NSMenuItem?
+    private var toggleListenItem: NSMenuItem?
     private var shortcutWarningItem: NSMenuItem?
     private var shortcutWarningDetailItem: NSMenuItem?
     private var shortcutWarningSeparator: NSMenuItem?
@@ -60,7 +61,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         model.$privacyModeEnabled
             .receive(on: RunLoop.main)
             .sink { [weak self] enabled in
-                self?.overlayController?.setPrivacyMode(enabled)
+                // Enforce always-on: if something flips it to false, snap back to true and keep .none
+                if !enabled {
+                    Task { @MainActor in self?.model.privacyModeEnabled = true }
+                }
+                self?.overlayController?.setPrivacyMode(true)
             }
             .store(in: &cancellables)
         
@@ -84,6 +89,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         model.$selectedScreenID
             .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.overlayController?.reposition()
+            }
+            .store(in: &cancellables)
+
+        // Temporary height changes (AI setup panel) never touch persisted settings.
+        model.$transientOverlayHeight
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.overlayController?.reposition()
@@ -217,6 +230,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(speedDown)
         speedDownItem = speedDown
 
+        menu.addItem(.separator())
+
+        let toggleListen = NSMenuItem(
+            title: "Listen for Question",
+            action: #selector(toggleListen),
+            keyEquivalent: ShortcutCommand.toggleListen.keyEquivalent
+        )
+        toggleListen.target = self
+        toggleListen.keyEquivalentModifierMask = shortcutModifiers
+        menu.addItem(toggleListen)
+        toggleListenItem = toggleListen
+
         refreshShortcutWarningItems(in: menu)
 
         menu.addItem(.separator())
@@ -282,7 +307,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func togglePrivacyMode() {
-        model.privacyModeEnabled.toggle()
+        // Enforced hidden-from-capture: never allow sharingType to become .readOnly.
+        // Keep model true and re-assert .none on the window.
+        model.privacyModeEnabled = true
+        overlayController?.setPrivacyMode(true)
     }
     
     @objc private func toggleOverlayVisibility() {
@@ -295,6 +323,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func decreaseSpeed() {
         model.adjustSpeed(delta: -PrompterModel.speedStep)
+    }
+
+    @objc private func toggleListen() {
+        ListenModel.shared.toggleListen()
+    }
+
+    @objc func openMainWindowFromOverlay() {
+        openMainWindow()
     }
 
     @objc private func openMainWindow() {
@@ -328,13 +364,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case .jumpBack:
             model.jumpBack(seconds: 5)
         case .togglePrivacy:
-            model.privacyModeEnabled.toggle()
+            // Enforced hidden-from-capture: shortcut keeps it enabled
+            model.privacyModeEnabled = true
+            overlayController?.setPrivacyMode(true)
         case .toggleOverlay:
             model.isOverlayVisible.toggle()
         case .speedUp:
             model.adjustSpeed(delta: PrompterModel.speedStep)
         case .speedDown:
             model.adjustSpeed(delta: -PrompterModel.speedStep)
+        case .toggleListen:
+            ListenModel.shared.toggleListen()
         }
     }
 
@@ -407,7 +447,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         if menuItem === privacyModeItem {
-            menuItem.state = model.privacyModeEnabled ? .on : .off
+            // Enforced: always hidden from capture/recording (SharingType.none)
+            menuItem.title = "Hidden from Capture (Enforced)"
+            menuItem.state = .on
+            menuItem.toolTip = "Overlay is always NSWindow.SharingType.none — never appears in screen recordings or shared windows (re-asserted on show/reposition)."
             return true
         }
         
@@ -417,6 +460,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         if menuItem === speedUpItem || menuItem === speedDownItem {
+            return true
+        }
+
+        if menuItem === toggleListenItem {
+            let lm = ListenModel.shared
+            if lm.isListening {
+                menuItem.title = "Stop Listening"
+            } else {
+                // Show dynamic title based on last state
+                switch lm.state {
+                case .thinking: menuItem.title = "Listening… (Thinking)"
+                case .answering: menuItem.title = "Listen Again"
+                case .error: menuItem.title = "Retry Listen"
+                default: menuItem.title = "Listen for Question"
+                }
+            }
             return true
         }
 

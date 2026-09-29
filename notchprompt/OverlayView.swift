@@ -88,6 +88,7 @@ private struct AppleNotchShape: InsettableShape {
 
 struct OverlayView: View {
     @ObservedObject var model: PrompterModel
+    @ObservedObject private var listen = ListenModel.shared
 
     var body: some View {
         // Ratio-driven contour tuned to Apple notch geometry and scaled to the
@@ -152,69 +153,97 @@ struct OverlayView: View {
             }
             
             if !model.isCountingDown {
-                HStack {
-                    HStack(spacing: 6) {
-                        OverlayControlButton(
-                            symbol: (model.isRunning || model.isCountingDown) ? "hand.draw.fill" : "play.fill"
-                        ) {
-                            model.switchPlaybackModeFromOverlayControl()
-                        }
-                        .help((model.isRunning || model.isCountingDown) ? "Pause and switch to manual trackpad scroll" : "Start auto scroll")
-                        
-                        OverlayControlButton(symbol: "gobackward.5") {
-                            model.jumpBack(seconds: 5)
-                        }
-                        .help("Jump back 5 seconds")
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.7), in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
-                    
-                    Spacer(minLength: 8)
-                    
-                    HStack(spacing: 6) {
-                        OverlayControlButton(symbol: "doc.on.clipboard") {
-                            if let text = NSPasteboard.general.string(forType: .string) {
-                                model.pasteScript(text)
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        HStack(spacing: 6) {
+                            OverlayControlButton(
+                                symbol: (model.isRunning || model.isCountingDown) ? "hand.draw.fill" : "play.fill"
+                            ) {
+                                model.switchPlaybackModeFromOverlayControl()
                             }
-                        }
-                        .help("Paste script from clipboard")
+                            .help((model.isRunning || model.isCountingDown) ? "Pause and switch to manual trackpad scroll" : "Start auto scroll")
+                            
+                            OverlayControlButton(symbol: "gobackward.5") {
+                                model.jumpBack(seconds: 5)
+                            }
+                            .help("Jump back 5 seconds")
 
-                        OverlayControlButton(symbol: "trash") {
-                            model.script = ""
+                            ListenControlButton(listen: listen)
                         }
-                        .help("Clear script")
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.7), in: Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+                        
+                        Spacer(minLength: 4)
+                        
+                        HStack(spacing: 6) {
+                            OverlayControlButton(symbol: "doc.on.clipboard") {
+                                if let text = NSPasteboard.general.string(forType: .string) {
+                                    model.pasteScript(text)
+                                }
+                            }
+                            .help("Paste script from clipboard")
 
-                        OverlayControlButton(symbol: "minus", repeatWhilePressed: true) {
-                            model.adjustSpeed(delta: -PrompterModel.speedStep)
-                        }
-                        .help("Decrease speed")
+                            OverlayControlButton(symbol: "trash") {
+                                model.script = ""
+                            }
+                            .help("Clear script")
 
-                        OverlayControlButton(symbol: "plus", repeatWhilePressed: true) {
-                            model.adjustSpeed(delta: PrompterModel.speedStep)
-                        }
-                        .help("Increase speed")
+                            OverlayControlButton(symbol: "minus", repeatWhilePressed: true) {
+                                model.adjustSpeed(delta: -PrompterModel.speedStep)
+                            }
+                            .help("Decrease speed")
 
-                        OverlayControlButton(symbol: "xmark") {
-                            NSApp.terminate(nil)
+                            OverlayControlButton(symbol: "plus", repeatWhilePressed: true) {
+                                model.adjustSpeed(delta: PrompterModel.speedStep)
+                            }
+                            .help("Increase speed")
+
+                            OverlayControlButton(symbol: "gearshape", isActive: listen.isAISetupVisible) {
+                                listen.toggleAISetup()
+                            }
+                            .help("AI providers & API keys — OpenAI, DeepSeek, Groq, OpenRouter…")
+
+                            OverlayControlButton(symbol: "xmark") {
+                                NSApp.terminate(nil)
+                            }
+                            .help("Quit Notchprompt")
                         }
-                        .help("Quit Notchprompt")
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.7), in: Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.7), in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
                 }
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+
+            // —— Bottom panel: AI provider setup takes priority over the answer card ——
+            if listen.isAISetupVisible {
+                VStack {
+                    Spacer()
+                    NotchAISetupCard(listen: listen)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 10)
+                }
+                .allowsHitTesting(true)
+            } else if listen.showAnswerInNotch {
+                VStack {
+                    Spacer()
+                    ListenAnswerCard(listen: listen)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 10)
+                }
+                .allowsHitTesting(true)
             }
 
             if model.isCountingDown {
@@ -228,7 +257,363 @@ struct OverlayView: View {
                 .allowsHitTesting(false)
             }
         }
-        .frame(width: model.overlayWidth, height: model.overlayHeight)
+        .frame(width: model.overlayWidth, height: model.effectiveOverlayHeight)
+    }
+}
+
+// MARK: - Listen UI
+
+private struct ListenControlButton: View {
+    @ObservedObject var listen: ListenModel
+
+    private var symbol: String {
+        switch listen.state {
+        case .idle: return "mic.fill"
+        case .requestingPermission: return "mic.badge.plus"
+        case .listening: return "waveform"
+        case .thinking: return "hourglass"
+        case .answering: return "checkmark.circle.fill"
+        case .error: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var isBusy: Bool {
+        switch listen.state {
+        case .listening, .thinking, .requestingPermission: return true
+        default: return false
+        }
+    }
+
+    var body: some View {
+        Button {
+            listen.toggleListen()
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(listen.isListening ? Color.red : Color.white)
+                .frame(width: 22, height: 22)
+                .contentShape(Circle())
+        }
+        .buttonStyle(
+            OverlayCircleButtonStyle(
+                isActive: isBusy,
+                repeatWhilePressed: false,
+                repeatAction: nil
+            )
+        )
+        .help(helpText)
+    }
+
+    private var helpText: String {
+        switch listen.state {
+        case .idle: return "Listen for a background question (\u{2325}\u{2318}L)"
+        case .requestingPermission: return "Requesting mic permission\u{2026}"
+        case .listening: return "Listening\u{2026} tap again to send to AI, or wait for auto-send"
+        case .thinking(let q): return "Thinking about: \(q.prefix(60))"
+        case .answering: return "Answer ready \u{2014} tap to listen for the next question"
+        case .error(let m): return m
+        }
+    }
+}
+
+private struct ListenAnswerCard: View {
+    @ObservedObject var listen: ListenModel
+
+    var body: some View {
+        Group {
+            switch listen.state {
+            case .idle, .requestingPermission:
+                EmptyView()
+            case .listening(let transcript):
+                card {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.62).tint(.white)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Listening…")
+                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.65))
+                                .textCase(.uppercase)
+                            Text(transcript.isEmpty ? "Say the question… background speech is captured" : transcript)
+                                .font(.system(size: 12, weight: .regular, design: .rounded))
+                                .foregroundStyle(.white.opacity(transcript.isEmpty ? 0.7 : 0.95))
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer(minLength: 6)
+                        Button("Stop") { listen.toggleListen() }
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Color.red.opacity(0.85), in: Capsule())
+                    }
+                }
+            case .thinking(let q):
+                card {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.62).tint(.white)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Thinking…")
+                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .textCase(.uppercase)
+                            Text(q).font(.system(size: 11, weight: .regular, design: .rounded)).foregroundStyle(.white.opacity(0.85)).lineLimit(2)
+                        }
+                        Spacer()
+                    }
+                }
+            case .answering(let ans):
+                card {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.yellow.opacity(0.9))
+                            Text("Suggested answer").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.6)).textCase(.uppercase)
+                            if let provider = listen.lastProvider {
+                                Text(provider).font(.system(size: 8, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                    .background(provider.lowercased().contains("deepseek") ? Color.purple.opacity(0.75) : Color.blue.opacity(0.75), in: Capsule())
+                                    .help("Answered via \(provider)\(provider.lowercased().contains("deepseek") && AIConfig.shared.fallbackEnabled ? " (fallback)" : "")")
+                            }
+                            Spacer()
+                            Button { listen.dismissAnswer() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.7)).frame(width: 18, height: 18).background(Color.white.opacity(0.12), in: Circle()) }
+                                .buttonStyle(.plain).help("Dismiss")
+                        }
+                        Text(ans)
+                            .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white)
+                            .lineLimit(5)
+                            .fixedSize(horizontal: false, vertical: false)
+                            .textSelection(.enabled)
+                        if !listen.lastQuestion.isEmpty {
+                            Text("Q: \(listen.lastQuestion)")
+                                .font(.system(size: 10, weight: .regular, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.5))
+                                .lineLimit(1)
+                        }
+                        HStack(spacing: 6) {
+                            Button { listen.copyAnswerToClipboard() } label: {
+                                Label("Copy", systemImage: "doc.on.doc").font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(ListenCardButtonStyle())
+
+                            Button { listen.pushAnswerToScript() } label: {
+                                Label("To script", systemImage: "arrow.down.doc").font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(ListenCardButtonStyle())
+
+                            Spacer(minLength: 4)
+
+                            Button("Listen again") { listen.startListening() }
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(Color.white.opacity(0.14), in: Capsule())
+                                .buttonStyle(.plain)
+                        }
+                    }
+                }
+            case .error(let msg):
+                card {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.system(size: 10))
+                            Text("Listen error").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.7)).textCase(.uppercase)
+                            Spacer()
+                            Button { listen.dismissAnswer() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.7)) }
+                                .buttonStyle(.plain)
+                        }
+                        Text(msg).font(.system(size: 11, weight: .regular, design: .rounded)).foregroundStyle(.white.opacity(0.9)).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+
+                        HStack(spacing: 6) {
+                            Button { listen.dismissAnswer() } label: {
+                                Text("Dismiss").font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(ListenCardButtonStyle())
+
+                            Button { listen.dismissAnswer(); listen.openAISetup() } label: {
+                                Label("AI Providers & Keys", systemImage: "key.fill").font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(ListenCardButtonStyle())
+
+                            Spacer(minLength: 4)
+
+                            Button { listen.startListening() } label: {
+                                Text("Retry").font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Color.orange.opacity(0.85), in: Capsule())
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: listen.state)
+    }
+
+    @ViewBuilder
+    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.black.opacity(0.78))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.45), radius: 12, y: 6)
+            )
+    }
+}
+
+/// Notch-native AI provider + API key setup panel (opened by the gear control).
+private struct NotchAISetupCard: View {
+    @ObservedObject var listen: ListenModel
+    @ObservedObject private var aiConfig = AIConfig.shared
+    @State private var testStatus: String?
+    @State private var isTesting = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "key.horizontal.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.yellow.opacity(0.9))
+                Text("AI Providers")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .textCase(.uppercase)
+                Spacer(minLength: 4)
+                Text("keys stored locally")
+                    .font(.system(size: 8, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.45))
+                Button { listen.closeAISetup() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .frame(width: 18, height: 18)
+                        .background(Color.white.opacity(0.12), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+            }
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    AIProviderEditor(
+                        title: "Primary",
+                        icon: "1.circle.fill",
+                        tint: .blue,
+                        baseURL: $aiConfig.baseURLString,
+                        model: $aiConfig.modelName,
+                        apiKey: $aiConfig.apiKey,
+                        selectedPreset: aiConfig.primaryPreset,
+                        onSelectPreset: { aiConfig.applyPrimaryPreset($0) },
+                        compact: true
+                    )
+
+                    Divider().overlay(Color.white.opacity(0.10))
+
+                    Toggle(isOn: $aiConfig.fallbackEnabled) {
+                        Text("Fallback provider (auto-retry)")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .toggleStyle(.switch)
+                    .scaleEffect(0.78, anchor: .leading)
+
+                    AIProviderEditor(
+                        title: "Fallback",
+                        icon: "2.circle.fill",
+                        tint: .purple,
+                        baseURL: $aiConfig.fallbackBaseURLString,
+                        model: $aiConfig.fallbackModelName,
+                        apiKey: $aiConfig.fallbackApiKey,
+                        selectedPreset: aiConfig.fallbackPreset,
+                        onSelectPreset: { aiConfig.applyFallbackPreset($0) },
+                        compact: true,
+                        disabled: !aiConfig.fallbackEnabled
+                    )
+                }
+                .padding(.vertical, 2)
+            }
+            .frame(maxHeight: 210)
+
+            if let s = testStatus {
+                Text(s)
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundStyle(s.contains("✓") ? .green : .orange)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 6) {
+                Button {
+                    Task { await runTest() }
+                } label: {
+                    if isTesting {
+                        ProgressView().scaleEffect(0.5).frame(width: 54)
+                    } else {
+                        Label("Test", systemImage: "bolt.fill").font(.system(size: 10, weight: .semibold, design: .rounded))
+                    }
+                }
+                .buttonStyle(ListenCardButtonStyle())
+                .disabled(aiConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isTesting)
+
+                Button {
+                    NSApp.sendAction(#selector(AppDelegate.openMainWindowFromOverlay), to: nil, from: nil)
+                } label: {
+                    Text("Full Settings…").font(.system(size: 10, weight: .semibold, design: .rounded))
+                }
+                .buttonStyle(ListenCardButtonStyle())
+
+                Spacer(minLength: 4)
+
+                Button { listen.closeAISetup() } label: {
+                    Text("Done").font(.system(size: 10, weight: .bold, design: .rounded))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(Color.blue.opacity(0.9), in: Capsule())
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.black.opacity(0.85))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
+        )
+    }
+
+    private func runTest() async {
+        isTesting = true
+        testStatus = "Testing \(aiConfig.providerLabel)…"
+        do {
+            let ans = try await AIService.shared.testPrimaryConnection()
+            testStatus = "✓ \(aiConfig.providerLabel): \(ans.prefix(40))"
+        } catch {
+            testStatus = "Error: \(error.localizedDescription.prefix(90))"
+        }
+        isTesting = false
+    }
+}
+
+private struct ListenCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white.opacity(configuration.isPressed ? 0.7 : 1))
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Color.white.opacity(configuration.isPressed ? 0.18 : 0.10), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
     }
 }
 

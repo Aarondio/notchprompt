@@ -10,6 +10,7 @@ enum ShortcutCommand: CaseIterable {
     case toggleOverlay
     case speedUp
     case speedDown
+    case toggleListen
 
     var keyEquivalent: String {
         switch self {
@@ -27,6 +28,8 @@ enum ShortcutCommand: CaseIterable {
             return "="
         case .speedDown:
             return "-"
+        case .toggleListen:
+            return "l"
         }
     }
 
@@ -46,6 +49,8 @@ enum ShortcutCommand: CaseIterable {
             return "⌥⌘="
         case .speedDown:
             return "⌥⌘-"
+        case .toggleListen:
+            return "⌥⌘L"
         }
     }
 
@@ -65,6 +70,8 @@ enum ShortcutCommand: CaseIterable {
             return 6
         case .speedDown:
             return 7
+        case .toggleListen:
+            return 8
         }
     }
 
@@ -84,6 +91,8 @@ enum ShortcutCommand: CaseIterable {
             return UInt32(kVK_ANSI_Equal)
         case .speedDown:
             return UInt32(kVK_ANSI_Minus)
+        case .toggleListen:
+            return UInt32(kVK_ANSI_L)
         }
     }
 

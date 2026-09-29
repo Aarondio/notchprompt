@@ -57,6 +57,9 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     @Published var fontSize: Double = 20
     @Published var overlayWidth: Double = 600
     @Published var overlayHeight: Double = 150
+    /// Transient, non-persisted height used while a temporary panel (e.g. the
+    /// AI provider setup) needs more room. Never written to UserDefaults.
+    @Published var transientOverlayHeight: Double?
     // Deprecated user setting: keep as a fixed constant unless changed explicitly in code.
     @Published var backgroundOpacity: Double = 1.0
     @Published var scrollMode: ScrollMode = .infinite
@@ -64,6 +67,11 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     @Published var selectedScreenID: CGDirectDisplayID = 0
     // Fraction of the viewport height to fade at top and bottom.
     let edgeFadeFraction: Double = 0.20
+
+    /// Height actually used for the overlay window (transient override wins).
+    var effectiveOverlayHeight: Double {
+        transientOverlayHeight ?? overlayHeight
+    }
 
     // Used to signal an immediate reset to the scrolling view.
     @Published private(set) var resetToken: UUID = UUID()
@@ -288,7 +296,10 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
             script = savedScript
         }
 
-        privacyModeEnabled = defaults.object(forKey: DefaultsKey.privacyModeEnabled) as? Bool ?? privacyModeEnabled
+        // Enforced hidden from screen capture/recording: always true (NSWindow.SharingType.none).
+        // Ignore any persisted false value and migrate existing installs.
+        privacyModeEnabled = true
+        defaults.set(true, forKey: DefaultsKey.privacyModeEnabled)
         isOverlayVisible = defaults.object(forKey: DefaultsKey.isOverlayVisible) as? Bool ?? true
         // Never auto-start on launch; require explicit user start each session.
         isRunning = false
@@ -299,7 +310,15 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         speedPointsPerSecond = clampedSpeed(defaults.object(forKey: DefaultsKey.speed) as? Double ?? speedPointsPerSecond)
         fontSize = clamp(defaults.object(forKey: DefaultsKey.fontSize) as? Double ?? fontSize, lower: 12, upper: 40)
         overlayWidth = clamp(defaults.object(forKey: DefaultsKey.overlayWidth) as? Double ?? overlayWidth, lower: 400, upper: 1200)
-        overlayHeight = clamp(defaults.object(forKey: DefaultsKey.overlayHeight) as? Double ?? overlayHeight, lower: 120, upper: 300)
+        // Migration: earlier builds could persist the temporary AI-setup height
+        // (380). Anything above the supported range is stale — reset to default.
+        let storedHeight = defaults.object(forKey: DefaultsKey.overlayHeight) as? Double ?? overlayHeight
+        if storedHeight > 300 {
+            overlayHeight = 150
+            defaults.set(overlayHeight, forKey: DefaultsKey.overlayHeight)
+        } else {
+            overlayHeight = clamp(storedHeight, lower: 120, upper: 300)
+        }
         // Opacity UI has been removed; always render fully opaque by default.
         backgroundOpacity = 1.0
         defaults.removeObject(forKey: "backgroundOpacity")
@@ -325,7 +344,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         defaults.set(script, forKey: DefaultsKey.script)
         defaults.set(isRunning, forKey: DefaultsKey.isRunning)
         defaults.set(isOverlayVisible, forKey: DefaultsKey.isOverlayVisible)
-        defaults.set(privacyModeEnabled, forKey: DefaultsKey.privacyModeEnabled)
+        defaults.set(true, forKey: DefaultsKey.privacyModeEnabled) // always hidden from capture
         defaults.set(speedPointsPerSecond, forKey: DefaultsKey.speed)
         defaults.set(fontSize, forKey: DefaultsKey.fontSize)
         defaults.set(overlayWidth, forKey: DefaultsKey.overlayWidth)
