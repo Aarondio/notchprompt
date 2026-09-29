@@ -66,6 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         hotkeyManager.registerAll()
         setupStatusBar()
         installEditKeyHandler()
+
+        // Debug affordance: `notchprompt --open-settings` opens the settings
+        // window at launch, which is the only way to exercise the UI from a
+        // script or a screenshot, since the app has no dock icon.
+        if ProcessInfo.processInfo.arguments.contains("--open-settings") {
+            openMainWindow()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

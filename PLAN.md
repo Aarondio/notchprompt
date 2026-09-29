@@ -402,6 +402,14 @@ clean and all self-test groups pass at launch.
       codes case-insensitively and preserves unlisted-but-valid ones instead of
       resetting.
 - [x] **Script library.** ✅ Named saved scripts with a picker and recents. Stored as a single JSON file in the app's Documents directory, which under the App Sandbox resolves to the app container — the only location writable without user consent. One file means one atomic write and no filename sanitisation or collision handling. Settings has a **Saved Scripts** section with load, inline rename, duplicate, delete, and an "in use" badge; the status menu carries a **Scripts** submenu that rebuilds on open, so a script saved this session is switchable mid-call. Duplicate names are disambiguated case-insensitively while preserving the user's own capitalisation.
+- [x] **AI request integration tests.** ✅ Closed the "nothing has ever made a
+  real request" gap. `scripts/mock_ai_provider.py` is a protocol-accurate
+  OpenAI-compatible server; `scripts/run_ai_integration.sh` compiles the real
+  `AIService` and drives it over real HTTP — 19 checks covering streamed plain
+  answers, structured JSON mode with quote capture, providers that ignore
+  `stream:true`, providers that reject `response_format` (4xx retry), the
+  fallback chain, and total failure. No API key required; the test file is
+  deliberately **not** in the app target.
 - [ ] **First-run onboarding.** A new user's first experience today is tapping
       the mic and getting a red error card.
 - [ ] **Token / cost meter.** Parse `usage` from responses and surface spend.

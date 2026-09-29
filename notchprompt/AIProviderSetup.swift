@@ -21,9 +21,14 @@ struct AIProviderPreset: Identifiable, Hashable {
     let keyURL: String
     let keyPlaceholder: String
     /// Whether the provider is known to accept `response_format: json_object`.
-    /// A false here is a hint only — a 4xx response still triggers a retry
-    /// without the parameter, so a wrong guess costs latency, not the answer.
-    var supportsJSONMode: Bool = false
+    ///
+    /// This is a hint, not a guarantee: a 4xx response still triggers one
+    /// automatic retry without the parameter, so a wrong guess costs a little
+    /// latency and never the answer. It is therefore optimistic by default —
+    /// self-hosted and custom OpenAI-compatible endpoints almost always support
+    /// JSON mode, and defaulting them to `false` would silently disable
+    /// jump-to-line for every one of them.
+    var supportsJSONMode: Bool = true
 
     static let custom = AIProviderPreset(
         id: "custom",
@@ -34,7 +39,7 @@ struct AIProviderPreset: Identifiable, Hashable {
         models: [],
         keyURL: "",
         keyPlaceholder: "sk-…",
-        supportsJSONMode: false
+        supportsJSONMode: true
     )
 
     static let all: [AIProviderPreset] = [
