@@ -250,25 +250,56 @@ disk with persistence off. Both configurations build clean.
 
 ---
 
-### [ ] Phase 4 — Position-aware context
+### [x] Phase 4 — Position-aware context ✅ *shipped*
 
 **Goal:** answers that are relevant to *this part* of the talk.
 
-Today the model receives the first 6,000 characters of the script, which amounts
-to "here is my whole talk." Instead send:
+- Added `ScriptTextMapper`, which converts live scroll geometry into a location
+  in the script text. It is **calibrated from the measured content height**
+  rather than a guessed character width, so wrapping, font metrics, and DPI are
+  absorbed automatically.
+- `AIService.answer` now takes a `ScriptContext` and tells the model
+  *"Where the speaker is right now: 51% through their talk"* followed by the
+  lines currently on screen, instead of the first 6,000 characters of the whole
+  talk.
+- The context is read **synchronously at the moment the question is asked**, so
+  it reflects the position the speaker was looking at when they heard the
+  question.
+- Windows are marked with `…` at cut points so the model can tell it is looking
+  at a fragment rather than the entire script.
+- **Honest degradation:** without measured layout the mapper reports
+  `isPrecise: false` and falls back to the opening of the script, and the
+  prompt says so rather than implying it knows the position.
+- The Phase 3 cache `contextKey` seam is now used: answers are bucketed by
+  position (5 buckets), so an answer given during the pricing section is not
+  reused during the close.
+- New setting **Tell it where I am in the script** (default on), nested under the
+  existing script-context toggle.
 
-- `progress` (percentage through the script)
-- the current section heading, if present
-- a ±N character window around the cursor
-
-Prompt template becomes: *"The speaker is 34% through a talk about X. Current
-section: '…'. Answer the question in that context."*
-
-Ship without heading parsing first; structured sections are a later refinement.
-
-**Files:** `AIService.swift`, `ScriptPositionModel.swift`, `PrompterModel.swift`
+**Files:** `ScriptTextMapper.swift` (new), `ScriptTextMapperSelfTests.swift`
+(new), `AIService.swift`, `ListenModel.swift`, `ScriptPositionModel.swift`,
+`ContentView.swift`, `AppDelegate.swift`
 
 **Risk:** Low · **Effort:** ~1 day · **Depends on:** Phase 0
+
+**Trade-off worth knowing:** bucketing the cache by position makes the cache
+*smarter* but *narrower* — the same question asked at a different point in the
+talk is now a miss. That is deliberate: serving a pricing answer during the
+close would be worse than re-asking. Turning off position-aware context
+restores global caching.
+
+**Done when:** 9 `ScriptTextMapperSelfTests` assertions cover start/end
+positioning, monotonicity of progress, bounded output under absurd geometry,
+empty scripts, the unmeasured-layout fallback, window symmetry, cut-point
+marking, and range safety for progress/bucket/percent across out-of-bounds
+inputs. Verified with a standalone `swiftc` harness that also inspects real
+output: at 51% through a 60-section script the window correctly centres on the
+sections at that point. Both configurations build clean.
+
+> **Caveat:** the mapping is approximate by necessity — SwiftUI does not expose
+> per-line metrics, so the mapper assumes uniform character density within a
+> line. It is accurate enough to be useful and always in-bounds, but it is not
+> an exact cursor position.
 
 ---
 

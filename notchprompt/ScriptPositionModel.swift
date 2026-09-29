@@ -42,6 +42,11 @@ struct ScriptPositionSnapshot: Equatable, Sendable {
         return min(max(raw, 0), 1)
     }
 
+    /// True once the script has real content laid out and its height measured.
+    var hasMeasuredContent: Bool {
+        contentHeight > 1
+    }
+
     static let initial = ScriptPositionSnapshot(
         phase: 0,
         contentHeight: 1,
@@ -142,11 +147,6 @@ final class ScriptPositionModel: ObservableObject {
     }
 
     // MARK: - Read helpers (for future AI context work)
-
-    /// True once the script has real content laid out.
-    var hasMeasuredContent: Bool {
-        snapshot.contentHeight > 1
-    }
 
     /// Points remaining until the end of the script, for stop-at-end mode.
     func pointsRemaining(toEndAt endPhase: CGFloat) -> CGFloat {

@@ -228,6 +228,21 @@ final class ListenModel: ObservableObject {
 
     // MARK: Private
 
+    /// Snapshot where the speaker is right now, for the AI prompt.
+    ///
+    /// Read synchronously on the main actor at the moment the question is
+    /// asked, so the context reflects the position the speaker was looking at
+    /// when they heard the question.
+    private func buildScriptContext() -> ScriptContext? {
+        let script = prompter.script
+        guard !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return ScriptTextMapper.makeContext(
+            snapshot: ScriptPositionModel.shared.snapshot,
+            script: script,
+            fontSize: prompter.fontSize
+        )
+    }
+
     private func submitQuestion(_ raw: String, auto: Bool, forceRefresh: Bool = false) {
         let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, q.count >= 3 else {
@@ -260,7 +275,7 @@ final class ListenModel: ObservableObject {
 
         Task {
             do {
-                let scriptCtx = prompter.script
+                let context = buildScriptContext()
                 let onDelta: ((String) -> Void)? = streamAnswers
                     ? { partial in
                         // Only promote to streaming once content actually starts;
@@ -281,7 +296,7 @@ final class ListenModel: ObservableObject {
 
                 let answer = try await ai.answer(
                     question: q,
-                    scriptContext: scriptCtx,
+                    scriptContext: context,
                     onDelta: onDelta,
                     onReasoning: onReasoning,
                     forceRefresh: forceRefresh

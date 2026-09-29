@@ -43,6 +43,9 @@ an AI assistant that answers background questions while you stay on camera.
   correctly: their internal reasoning is kept out of the answer you read.
 - **Provider picker + key entry inside the notch** — OpenAI, DeepSeek, Groq,
   OpenRouter, Together AI, or any custom OpenAI-compatible endpoint.
+- **It knows where you are.** The model is told how far through your script you
+  are and given the lines currently on screen, so answers fit the part of the
+  talk you are in — not a generic read of the whole thing.
 - **Automatic fallback provider** — e.g. DeepSeek — retried whenever the primary
   fails (rate limit, 5xx, network error, or invalid key).
 - **Hands-free or manual send**, with a tunable pause-before-sending, and
@@ -203,6 +206,12 @@ taking follow-up questions hands-free.
 default), filler like "sounds good" is not sent to the AI — this avoids
 pointless requests. If a real question does get skipped, the notch offers
 **Send anyway**, and tapping the mic always sends regardless.
+
+**About script context.** By default the AI is told how far through your script
+you are and is sent the lines currently on screen. Turn off *Tell it where I am
+in the script* in `Settings → Listen & AI` to send the top of your script
+instead, or turn off *Include script as context* to send nothing but the
+question.
 
 If no provider is configured, tapping the mic returns an error card with an
 **AI Providers & Keys** shortcut to the setup panel.

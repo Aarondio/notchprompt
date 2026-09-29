@@ -280,8 +280,15 @@ struct ContentView: View {
                     }
 
                     Toggle("Include script as context", isOn: $aiConfig.includeScriptAsContext)
-                    Text("Sends up to 6k chars of your script with each question so answers stay on-message.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                    if aiConfig.includeScriptAsContext {
+                        Toggle("Tell it where I am in the script", isOn: $aiConfig.positionAwareContext)
+                        Text("Sends how far through your script you are and the lines currently on screen, instead of the top of the script. Makes answers specific to the part of the talk you are in.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("Sends nothing about your script — only the question.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
 
                     HStack(spacing: 12) {
                         HStack {

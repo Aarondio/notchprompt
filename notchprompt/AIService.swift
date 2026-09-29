@@ -130,6 +130,11 @@ final class AIConfig: ObservableObject {
     @Published var includeScriptAsContext: Bool {
         didSet { UserDefaults.standard.set(includeScriptAsContext, forKey: Keys.includeScript) }
     }
+    /// When on, the model is told how far through the talk the speaker is and
+    /// given the lines currently on screen, instead of the top of the script.
+    @Published var positionAwareContext: Bool {
+        didSet { UserDefaults.standard.set(positionAwareContext, forKey: Keys.positionAware) }
+    }
     @Published var temperature: Double {
         didSet { UserDefaults.standard.set(temperature, forKey: Keys.temperature) }
     }
@@ -162,6 +167,7 @@ final class AIConfig: ObservableObject {
         static let systemPrompt = "aiSystemPrompt"
         static let maxTokens = "aiMaxTokens"
         static let includeScript = "aiIncludeScript"
+        static let positionAware = "aiPositionAware"
         static let temperature = "aiTemp"
         static let answerCacheEnabled = "aiAnswerCacheEnabled"
         static let answerCachePersist = "aiAnswerCachePersist"
@@ -179,6 +185,7 @@ final class AIConfig: ObservableObject {
         self.systemPrompt = d.string(forKey: Keys.systemPrompt) ?? AIConfig.defaultSystemPrompt
         self.maxTokens = d.object(forKey: Keys.maxTokens) as? Int ?? 320
         self.includeScriptAsContext = d.object(forKey: Keys.includeScript) as? Bool ?? true
+        self.positionAwareContext = d.object(forKey: Keys.positionAware) as? Bool ?? true
         self.temperature = d.object(forKey: Keys.temperature) as? Double ?? 0.6
         self.answerCacheEnabled = d.object(forKey: Keys.answerCacheEnabled) as? Bool ?? true
         self.answerCachePersistToDisk = d.object(forKey: Keys.answerCachePersist) as? Bool ?? false
@@ -317,14 +324,17 @@ final class AIService: ObservableObject {
     /// transparently (their non-streamed body is parsed instead).
     func answer(
         question: String,
-        scriptContext: String? = nil,
+        scriptContext: ScriptContext? = nil,
         onDelta: ((String) -> Void)? = nil,
         onReasoning: ((String) -> Void)? = nil,
         forceRefresh: Bool = false
     ) async throws -> String {
-        // Repeated questions are answered instantly and for free.
+        // Repeated questions are answered instantly and for free. When we know
+        // where the speaker is, the bucket is part of the key so an answer given
+        // during the pricing section is not reused during the close.
+        let contextKey = (config.positionAwareContext ? scriptContext.map { String($0.positionBucket) } ?? nil : nil) ?? ""
         if config.answerCacheEnabled, !forceRefresh {
-            if let hit = AnswerCache.shared.lookup(question) {
+            if let hit = AnswerCache.shared.lookup(question, contextKey: contextKey) {
                 lastSuccessfulProvider = hit.provider
                 lastAnswerWasCached = true
                 onDelta?(hit.answer)
@@ -335,12 +345,37 @@ final class AIService: ObservableObject {
 
         let userContent: String = {
             var parts: [String] = []
-            if config.includeScriptAsContext, let ctx = scriptContext?.trimmingCharacters(in: .whitespacesAndNewlines), !ctx.isEmpty {
-                let truncated = String(ctx.prefix(6000))
-                parts.append("Context (my script / notes):\n\"\"\"\n\(truncated)\n\"\"\"")
+            let asked = question.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if config.includeScriptAsContext, let context = scriptContext {
+                let window = context.windowText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !window.isEmpty {
+                    if context.isPrecise {
+                        // The differentiator: tell the model where the speaker
+                        // actually is, so the answer fits this part of the talk.
+                        parts.append(
+                            """
+                            Where the speaker is right now: \(context.progressPercent)% through their talk.
+                            The lines currently on screen:
+                            \"\"\"
+                            \(window)
+                            \"\"\"
+                            """
+                        )
+                    } else {
+                        parts.append("Context (the opening of their script):\n\"\"\"\n\(window)\n\"\"\"")
+                    }
+                }
             }
-            parts.append("Background question heard:\n\"\(question.trimmingCharacters(in: .whitespacesAndNewlines))\"")
-            parts.append("Provide the best short spoken answer I can give right now.")
+
+            parts.append("Background question heard:\n\"\(asked)\"")
+
+            if config.positionAwareContext, scriptContext?.isPrecise == true {
+                parts.append("Give the best short spoken answer for this point in their talk.")
+            } else {
+                parts.append("Provide the best short spoken answer I can give right now.")
+            }
+
             return parts.joined(separator: "\n\n")
         }()
 
@@ -406,7 +441,8 @@ final class AIService: ObservableObject {
                         question: question,
                         answer: text,
                         provider: a.label,
-                        model: a.model
+                        model: a.model,
+                        contextKey: contextKey
                     )
                 }
                 return text

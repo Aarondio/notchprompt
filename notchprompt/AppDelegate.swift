@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 #if DEBUG
         ScreenSelectionSelfTests.run()
         ScriptPositionSelfTests.run()
+        ScriptTextMapperSelfTests.run()
         SSESelfTests.run()
         QuestionGateSelfTests.run()
         AnswerCacheSelfTests.run()
