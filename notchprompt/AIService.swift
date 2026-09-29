@@ -133,6 +133,23 @@ final class AIConfig: ObservableObject {
     @Published var temperature: Double {
         didSet { UserDefaults.standard.set(temperature, forKey: Keys.temperature) }
     }
+    // — Caching —
+    /// Re-use answers to repeated questions. In-memory only unless
+    /// `answerCachePersistToDisk` is on.
+    @Published var answerCacheEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(answerCacheEnabled, forKey: Keys.answerCacheEnabled)
+            applyCacheSettings()
+        }
+    }
+    /// Writing cached answers to disk leaves a record of what was discussed, so
+    /// it is opt-in.
+    @Published var answerCachePersistToDisk: Bool {
+        didSet {
+            UserDefaults.standard.set(answerCachePersistToDisk, forKey: Keys.answerCachePersist)
+            applyCacheSettings()
+        }
+    }
 
     private enum Keys {
         static let baseURL = "aiBaseURL"
@@ -146,6 +163,8 @@ final class AIConfig: ObservableObject {
         static let maxTokens = "aiMaxTokens"
         static let includeScript = "aiIncludeScript"
         static let temperature = "aiTemp"
+        static let answerCacheEnabled = "aiAnswerCacheEnabled"
+        static let answerCachePersist = "aiAnswerCachePersist"
     }
 
     private init() {
@@ -161,6 +180,9 @@ final class AIConfig: ObservableObject {
         self.maxTokens = d.object(forKey: Keys.maxTokens) as? Int ?? 320
         self.includeScriptAsContext = d.object(forKey: Keys.includeScript) as? Bool ?? true
         self.temperature = d.object(forKey: Keys.temperature) as? Double ?? 0.6
+        self.answerCacheEnabled = d.object(forKey: Keys.answerCacheEnabled) as? Bool ?? true
+        self.answerCachePersistToDisk = d.object(forKey: Keys.answerCachePersist) as? Bool ?? false
+        applyCacheSettings()
         // Backfill if empty
         if d.string(forKey: Keys.systemPrompt) == nil {
             UserDefaults.standard.set(systemPrompt, forKey: Keys.systemPrompt)
@@ -191,6 +213,14 @@ final class AIConfig: ObservableObject {
         } else {
             UserDefaults.standard.set(value, forKey: account)
         }
+    }
+
+    private func applyCacheSettings() {
+        AnswerCache.shared.configure(
+            ttl: 30 * 24 * 60 * 60,
+            maxEntries: 100,
+            persistenceEnabled: answerCachePersistToDisk
+        )
     }
 
     static let defaultSystemPrompt = """
@@ -267,6 +297,8 @@ final class AIService: ObservableObject {
     static let shared = AIService()
 
     @Published private(set) var lastSuccessfulProvider: String?
+    /// True when the most recent answer was served from the local cache.
+    @Published private(set) var lastAnswerWasCached = false
     private let config = AIConfig.shared
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
@@ -287,8 +319,20 @@ final class AIService: ObservableObject {
         question: String,
         scriptContext: String? = nil,
         onDelta: ((String) -> Void)? = nil,
-        onReasoning: ((String) -> Void)? = nil
+        onReasoning: ((String) -> Void)? = nil,
+        forceRefresh: Bool = false
     ) async throws -> String {
+        // Repeated questions are answered instantly and for free.
+        if config.answerCacheEnabled, !forceRefresh {
+            if let hit = AnswerCache.shared.lookup(question) {
+                lastSuccessfulProvider = hit.provider
+                lastAnswerWasCached = true
+                onDelta?(hit.answer)
+                return hit.answer
+            }
+        }
+        lastAnswerWasCached = false
+
         let userContent: String = {
             var parts: [String] = []
             if config.includeScriptAsContext, let ctx = scriptContext?.trimmingCharacters(in: .whitespacesAndNewlines), !ctx.isEmpty {
@@ -357,6 +401,14 @@ final class AIService: ObservableObject {
                     text = try await performRequest(url: url, model: a.model, apiKey: a.apiKey, messages: messages)
                 }
                 lastSuccessfulProvider = a.label
+                if config.answerCacheEnabled {
+                    AnswerCache.shared.store(
+                        question: question,
+                        answer: text,
+                        provider: a.label,
+                        model: a.model
+                    )
+                }
                 return text
             } catch {
                 lastError = error

@@ -205,18 +205,48 @@ in-app DEBUG run. Both configurations build clean.
 
 ---
 
-### [ ] Phase 3 — Answer cache
+### [x] Phase 3 — Answer cache ✅ *shipped*
 
-- `AnswerCache` actor keyed on a normalized question (lowercase, strip
-  punctuation, collapse whitespace). LRU eviction, TTL, size cap.
-- In-memory by default. **Optional disk persistence behind an explicit toggle** —
-  a disk cache stores answers on disk, which cuts against the app's privacy
-  story. It should be opt-in and clearable.
-- UI: "cached" badge plus a **Refresh** action to bypass.
+- `AnswerCache` — an LRU cache keyed on a normalized question (lowercased,
+  punctuation stripped, whitespace collapsed) with a 30-day TTL and a 100-entry
+  cap. Backed by an `NSLock` rather than an `actor` so it stays synchronously
+  testable, matching the repo's DEBUG self-test style.
+- In-memory by default, with a separate **opt-in** switch for disk persistence.
+  Writing answers to disk leaves a record of what was discussed on a call, which
+  cuts against the app's privacy posture, so it is off unless asked for — and
+  turning it off deletes the file.
+- `AIService.answer` checks the cache first and sets `lastAnswerWasCached`.
+  `forceRefresh: true` bypasses it. `testPrimaryConnection` is unaffected, so
+  connectivity tests always hit the network.
+- UI: a green **cached** badge replaces the provider badge on a cache hit, and
+  **Re-ask** forces a fresh request. Settings show the entry count and allow
+  clearing.
+- The key function accepts a `contextKey` seam; Phase 4 will pass a coarse
+  script-position bucket so an answer given during the pricing section is not
+  reused during the close.
 
-**Files:** `AnswerCache.swift` (new), `AIService.swift`, `ListenModel.swift`
+**Files:** `AnswerCache.swift` (new), `AnswerCacheSelfTests.swift` (new),
+`AIService.swift`, `ListenModel.swift`, `OverlayView.swift`, `ContentView.swift`,
+`AppDelegate.swift`
 
 **Risk:** Low · **Effort:** ~0.5 day
+
+**One bug caught by the tests:** normalization split on apostrophes, turning
+`"what's"` into `"what s"`, so `"What's your pricing?"` and `"whats your
+pricing"` produced *different* keys and silently lost the cache hit. Apostrophes
+are now stripped before tokenising.
+
+**Known limitation, recorded deliberately:** normalization is lexical, not
+semantic, so `"what is your pricing"` and `"whats your pricing"` are distinct
+keys. In practice the recognizer is consistent for a given phrasing, so this
+costs a missed hit rather than a wrong answer — and a wrong answer is the
+failure mode worth avoiding here.
+
+**Done when:** 10 `AnswerCacheSelfTests` assertions cover normalization
+(punctuation, case, whitespace, context keys), the cacheability floor,
+store/lookup, recency updates, LRU eviction, TTL expiry, and remove/clear.
+Verified with a standalone `swiftc` harness. Confirmed no file is written to
+disk with persistence off. Both configurations build clean.
 
 ---
 

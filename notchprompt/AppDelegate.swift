@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ScriptPositionSelfTests.run()
         SSESelfTests.run()
         QuestionGateSelfTests.run()
+        AnswerCacheSelfTests.run()
         runShortcutSelfChecks()
 #endif
 

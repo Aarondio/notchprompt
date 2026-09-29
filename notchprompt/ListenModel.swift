@@ -35,6 +35,7 @@ final class ListenModel: ObservableObject {
     @Published private(set) var lastAnswer: String = ""
     @Published private(set) var lastQuestion: String = ""
     @Published private(set) var lastProvider: String?
+    @Published private(set) var lastAnswerWasCached = false
     @Published private(set) var isListening = false
 
     /// History for debugging / future list view
@@ -197,6 +198,14 @@ final class ListenModel: ObservableObject {
         submitQuestion(text, auto: false)
     }
 
+    /// Re-ask the last question, bypassing the cache. Use when an answer was
+    /// right in shape but wrong in substance.
+    func refreshLastAnswer() {
+        guard !lastQuestion.isEmpty else { return }
+        AnswerCache.shared.remove(lastQuestion)
+        submitQuestion(lastQuestion, auto: false, forceRefresh: true)
+    }
+
     // MARK: - AI setup panel
 
     func openAISetup() {
@@ -219,7 +228,7 @@ final class ListenModel: ObservableObject {
 
     // MARK: Private
 
-    private func submitQuestion(_ raw: String, auto: Bool) {
+    private func submitQuestion(_ raw: String, auto: Bool, forceRefresh: Bool = false) {
         let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, q.count >= 3 else {
             state = isListening ? .listening(transcript: q) : .idle
@@ -274,11 +283,13 @@ final class ListenModel: ObservableObject {
                     question: q,
                     scriptContext: scriptCtx,
                     onDelta: onDelta,
-                    onReasoning: onReasoning
+                    onReasoning: onReasoning,
+                    forceRefresh: forceRefresh
                 )
                 self.currentReasoning = ""
                 self.lastAnswer = answer
                 self.lastProvider = self.ai.lastSuccessfulProvider
+                self.lastAnswerWasCached = self.ai.lastAnswerWasCached
                 self.state = .answering(answer)
                 self.history.insert((q, answer, self.lastProvider, Date()), at: 0)
                 if self.history.count > 30 { self.history.removeLast(self.history.count - 30) }

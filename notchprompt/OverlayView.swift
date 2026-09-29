@@ -432,7 +432,14 @@ private struct ListenAnswerCard: View {
                         HStack(spacing: 6) {
                             Image(systemName: "sparkles").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.yellow.opacity(0.9))
                             Text("Suggested answer").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.6)).textCase(.uppercase)
-                            if let provider = listen.lastProvider {
+                            if listen.lastAnswerWasCached {
+                                Text("cached")
+                                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                    .background(Color.green.opacity(0.75), in: Capsule())
+                                    .help("Reused from the local cache — no request was made")
+                            } else if let provider = listen.lastProvider {
                                 Text(provider).font(.system(size: 8, weight: .bold, design: .rounded))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 5).padding(.vertical, 2)
@@ -465,6 +472,12 @@ private struct ListenAnswerCard: View {
                                 Label("To script", systemImage: "arrow.down.doc").font(.system(size: 10, weight: .semibold, design: .rounded))
                             }
                             .buttonStyle(ListenCardButtonStyle())
+
+                            Button { listen.refreshLastAnswer() } label: {
+                                Label("Re-ask", systemImage: "arrow.clockwise").font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(ListenCardButtonStyle())
+                            .help("Ask the AI again, ignoring the cached answer")
 
                             Spacer(minLength: 4)
 

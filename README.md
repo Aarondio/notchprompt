@@ -170,6 +170,10 @@ no intermediary service. Prompts and answers are not logged by Notchprompt.
    streams in word by word, so you can start speaking before it finishes. Use
    **Copy** to grab it, or **To script** to append it to your scrolling script.
 
+**Repeated questions are free.** Cached answers return instantly with a green
+**cached** badge and make no request. Use **Re-ask** to force a fresh one if the
+cached answer was right in shape but wrong in substance.
+
 **Continuous listening** resumes capture after each answer, so you can keep
 taking follow-up questions hands-free.
 

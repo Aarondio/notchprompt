@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var fallbackTestStatus: String?
     @State private var isTesting = false
     @State private var isTestingFallback = false
+    @State private var cachedCount = AnswerCache.shared.count
 
     private let rowLabelWidth: CGFloat = 164
     private let valueWidth: CGFloat = 56
@@ -260,6 +261,33 @@ struct ContentView: View {
                         Text("Max tokens").frame(width: rowLabelWidth, alignment: .leading)
                         Slider(value: Binding(get: { Double(aiConfig.maxTokens) }, set: { aiConfig.maxTokens = Int($0.rounded()) }), in: 80...800, step: 10)
                         Text("\(aiConfig.maxTokens)").frame(width: 40, alignment: .trailing).foregroundStyle(.secondary).font(.caption.monospaced())
+                    }
+                }
+
+                Divider()
+
+                // Answer cache
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Re-use answers to repeated questions", isOn: $aiConfig.answerCacheEnabled)
+                    Text("Objections and FAQs come up on every call. Cached answers return instantly and cost nothing.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Toggle("Remember cached answers on disk", isOn: $aiConfig.answerCachePersistToDisk)
+                    Text("Off by default. Writing to disk keeps the cache between launches but leaves a record of what was discussed, which is why it is opt-in.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 8) {
+                        Text("Cached answers: \(cachedCount)")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear cache") {
+                            AnswerCache.shared.clear()
+                            cachedCount = 0
+                        }
+                        .controlSize(.small)
+                        .disabled(cachedCount == 0)
                     }
                 }
 
