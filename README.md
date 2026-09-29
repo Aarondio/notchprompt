@@ -53,6 +53,12 @@ an AI assistant that answers background questions while you stay on camera.
   it cannot be switched off.
 - Keys live in the Keychain; nothing sensitive is written to preferences.
 
+## Roadmap
+
+Planned improvements are tracked in [PLAN.md](PLAN.md) — streaming answers,
+context-aware replies, question gating, answer caching, script library, and
+more.
+
 ## Requirements
 
 - macOS 14.0 or later.
