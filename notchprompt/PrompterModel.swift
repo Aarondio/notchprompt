@@ -79,7 +79,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     @Published private(set) var jumpBackDistancePoints: CGFloat = 0
     @Published private(set) var manualScrollToken: UUID = UUID()
     @Published private(set) var manualScrollDeltaPoints: CGFloat = 0
-    private(set) var savedScrollPhaseForResume: CGFloat?
+    // Scroll position itself lives in ScriptPositionModel.
 
     private var countdownTask: Task<Void, Never>?
     private var shouldUseCountdownOnNextStart: Bool = true
@@ -124,12 +124,8 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     func resetScroll() {
         didReachEndInStopMode = false
         shouldUseCountdownOnNextStart = true
-        savedScrollPhaseForResume = nil
+        ScriptPositionModel.shared.reset()
         resetToken = UUID()
-    }
-
-    func saveScrollPhaseForResume(_ phase: CGFloat) {
-        savedScrollPhaseForResume = phase
     }
 
     func jumpBack(seconds: Double = 5) {

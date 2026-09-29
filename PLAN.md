@@ -71,7 +71,7 @@ How each planned feature serves it:
 
 ## 4. Architecture prerequisite
 
-### [ ] Phase 0 — Extract `ScriptPositionModel`
+### [x] Phase 0 — Extract `ScriptPositionModel` ✅ *shipped*
 
 **Why this is first:** two of the best features (position-aware context,
 jump-to-line) are impossible until the model layer can *read* where the
@@ -79,20 +79,39 @@ teleprompter is and *command* it to move. Today that state is trapped in
 private `@State` inside `ScrollingTextView`, and the only view→model channel is
 write-only UUID command tokens.
 
-**What changes**
+**What changed**
 
-- New `ScriptPositionModel` (`@MainActor`, `ObservableObject`) publishing
-  `phase`, `contentHeight`, `viewportHeight`, `progress` (0–1), and a
-  `seek(toPhase:)` command with a `seekToken`.
-- `ScrollingTextView` writes its tick state into it rather than owning it
-  exclusively, and observes `seekToken` to move.
-- Supersedes the ad-hoc `onSaveScrollPhaseForResume` closure.
+- Added `ScriptPositionModel` (`@MainActor`, `ObservableObject`) publishing
+  `progressPercent` / `progressFraction` for UI, and holding a pull-only
+  `snapshot` of `phase`, `contentHeight`, `viewportHeight`, `startAnchorOffset`
+  for prompt building.
+- Seek channel: `requestSeek(toPhase:)` / `requestSeek(toProgress:)` set a
+  pending target and bump `seekToken`, mirroring the existing
+  `resetToken` / `jumpBackToken` convention.
+- `ScrollingTextView` mirrors its frame-rate state via `publishPosition()` and
+  applies seeks through `applySeek(to:)`, clamping to the stop-at-end range and
+  keeping `phase` bounded. It deliberately does **not** reset `lastTickDate` on
+  a seek, so a mid-scroll jump introduces no frame-delta glitch.
+- `savedScrollPhaseForResume` moved off `PrompterModel` into
+  `ScriptPositionModel`, superseding the `onSaveScrollPhaseForResume` closure.
 
-**Files:** `notchprompt/ScriptPositionModel.swift` (new),
-`notchprompt/ScrollingTextView.swift`, `notchprompt/PrompterModel.swift`,
-`notchprompt/OverlayView.swift`
+**Design note:** the animation phase stays inside `ScrollingTextView`. Moving it
+into an `ObservableObject` would publish 60 times a second and invalidate every
+observing view each frame. `ScriptPositionModel` mirrors it instead, and
+publishes only throttled whole-percent values (~0.5s) for UI.
+
+**Files:** `ScriptPositionModel.swift` (new), `ScriptPositionSelfTests.swift`
+(new), `ScrollingTextView.swift`, `PrompterModel.swift`, `OverlayView.swift`,
+`AppDelegate.swift`
 
 **Risk:** Low · **Effort:** ~1 day · **Blocks:** Phases 4 and 5
+
+**Done when:** self-tests pass and both Debug and Release build clean. The eight
+assertions in `ScriptPositionSelfTests` cover progress math (start, midpoint,
+clamping both ends, no-content), seek targeting (percentage→phase mapping,
+out-of-range clamping, single consumption), reset lifecycle, and snapshot
+round-tripping. They run at launch in DEBUG and the app was verified not to
+crash. **Not yet verified:** interactive scroll + seek, which needs manual use.
 
 ---
 

@@ -22,9 +22,11 @@ struct ScrollingTextView: View {
     let backgroundOpacity: Double
     let isHovering: Bool
     let scrollMode: PrompterModel.ScrollMode
-    let savedScrollPhaseForResume: CGFloat?
-    let onSaveScrollPhaseForResume: ((CGFloat) -> Void)?
     let onReachedEnd: (() -> Void)?
+
+    /// Shared scroll position. The scroller mirrors its frame-rate state into
+    /// this model and applies any pending seek requests.
+    @ObservedObject var position: ScriptPositionModel
 
     private static let loopGap: CGFloat = 24
     private static let activeTickInterval: TimeInterval = 1.0 / 60.0
@@ -163,6 +165,7 @@ struct ScrollingTextView: View {
                 .onChange(of: text) { _, _ in
                     hasMeasuredContentHeight = false
                     deferredStopTargetPhase = nil
+                    position.reset()
                     resetPhase()
                 }
                 .onChange(of: jumpBackToken) { _, _ in
@@ -170,6 +173,10 @@ struct ScrollingTextView: View {
                     hasReachedEndInStopMode = false
                     deferredStopTargetPhase = nil
                     phase = max(phase - max(0, jumpBackDistancePoints), topOfScriptPhaseFloor)
+                }
+                .onChange(of: position.seekToken) { _, _ in
+                    guard let target = position.consumePendingSeekPhase() else { return }
+                    applySeek(to: target)
                 }
                 .onChange(of: manualScrollToken) { _, _ in
                     guard hasContent else { return }
@@ -187,7 +194,7 @@ struct ScrollingTextView: View {
                 }
                 .onChange(of: isRunning) { _, isNowRunning in
                     if !isNowRunning {
-                        onSaveScrollPhaseForResume?(phase)
+                        position.savePhaseForResume()
                     }
                     lastTickDate = timeline.date
                 }
@@ -277,10 +284,11 @@ struct ScrollingTextView: View {
         let desired = desiredSpeedMultiplier()
         currentSpeedMultiplier = desired
         targetSpeedMultiplier = desired
+        publishPosition()
     }
 
     private func restoreOrResetPhase() {
-        guard hasStartedSession, let saved = savedScrollPhaseForResume else {
+        guard hasStartedSession, let saved = position.savedPhaseForResume else {
             resetPhase()
             return
         }
@@ -291,6 +299,43 @@ struct ScrollingTextView: View {
         let desired = desiredSpeedMultiplier()
         currentSpeedMultiplier = desired
         targetSpeedMultiplier = desired
+        publishPosition()
+    }
+
+    /// Apply an absolute seek requested through `ScriptPositionModel`.
+    private func applySeek(to target: CGFloat) {
+        hasReachedEndInStopMode = false
+        deferredStopTargetPhase = nil
+
+        var newPhase = target
+
+        if scrollMode == .stopAtEnd, hasMeasuredContentHeight {
+            newPhase = min(max(newPhase, topOfScriptPhaseFloor), endPhase)
+        } else {
+            // Keep phase bounded so it cannot grow without limit over long runs.
+            if newPhase >= cycleLength * 8 || newPhase <= -(cycleLength * 8) {
+                newPhase = newPhase.truncatingRemainder(dividingBy: cycleLength)
+            }
+            newPhase = max(newPhase, topOfScriptPhaseFloor)
+        }
+
+        phase = newPhase
+        // Deliberately not touching lastTickDate: the next tick should use a real
+        // frame delta so a mid-scroll seek does not introduce a position jump.
+        publishPosition()
+    }
+
+    /// Mirror frame-rate scroll state into the shared position model.
+    private func publishPosition() {
+        position.update(
+            ScriptPositionSnapshot(
+                phase: phase,
+                contentHeight: contentHeight,
+                viewportHeight: viewportHeight,
+                startAnchorOffset: startAnchorOffset,
+                isRunning: isRunning
+            )
+        )
     }
 
     private func normalizeTopAnchorIfNearStart() {
@@ -322,6 +367,7 @@ struct ScrollingTextView: View {
     private func tick(at date: Date) {
         guard hasContent else {
             lastTickDate = date
+            publishPosition()
             return
         }
 
@@ -391,6 +437,8 @@ struct ScrollingTextView: View {
         if scrollMode == .infinite, phase >= cycleLength * 8 {
             phase = phase.truncatingRemainder(dividingBy: cycleLength)
         }
+
+        publishPosition()
     }
 }
 

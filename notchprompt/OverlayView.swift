@@ -132,15 +132,12 @@ struct OverlayView: View {
                 backgroundOpacity: model.backgroundOpacity,
                 isHovering: false,
                 scrollMode: model.scrollMode,
-                savedScrollPhaseForResume: model.savedScrollPhaseForResume,
-                onSaveScrollPhaseForResume: { phase in
-                    model.saveScrollPhaseForResume(phase)
-                },
                 onReachedEnd: {
                     if model.isRunning {
                         model.markReachedEndInStopMode()
                     }
-                }
+                },
+                position: ScriptPositionModel.shared
             )
             .padding(.horizontal, 18)
             .padding(.top, 58)
