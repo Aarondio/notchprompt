@@ -48,6 +48,13 @@ struct AIChatCompletionRequest: Codable {
     }
 }
 
+/// Shared error shape returned by OpenAI-compatible providers.
+struct AIAPIError: Codable {
+    let message: String?
+    let type: String?
+    let code: String?
+}
+
 struct AIChatCompletionResponse: Codable {
     struct Choice: Codable {
         struct Message: Codable {
@@ -58,13 +65,7 @@ struct AIChatCompletionResponse: Codable {
         let text: String? // legacy completions fallback
     }
     let choices: [Choice]?
-    let error: APIError?
-
-    struct APIError: Codable {
-        let message: String?
-        let type: String?
-        let code: String?
-    }
+    let error: AIAPIError?
 
     var firstText: String? {
         if let c = choices?.first?.message?.content, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -75,6 +76,19 @@ struct AIChatCompletionResponse: Codable {
         }
         return choices?.first?.text
     }
+}
+
+/// A single `data:` frame from a streamed chat completion.
+struct AIStreamChunk: Decodable {
+    struct Choice: Decodable {
+        struct Delta: Decodable {
+            let content: String?
+            let reasoning_content: String? // DeepSeek R1 emits this before the answer
+        }
+        let delta: Delta?
+    }
+    let choices: [Choice]?
+    let error: AIAPIError?
 }
 
 /// Stores AI config in UserDefaults + Keychain (API key).
@@ -264,7 +278,17 @@ final class AIService: ObservableObject {
     }()
 
     /// Answer a background question. Tries primary provider, then falls back to DeepSeek if enabled.
-    func answer(question: String, scriptContext: String? = nil) async throws -> String {
+    ///
+    /// When `onDelta` is supplied the response is streamed so the caller can
+    /// render the answer as it arrives — the single biggest perceived-latency
+    /// win for live Q&A. Providers that ignore `stream: true` are handled
+    /// transparently (their non-streamed body is parsed instead).
+    func answer(
+        question: String,
+        scriptContext: String? = nil,
+        onDelta: ((String) -> Void)? = nil,
+        onReasoning: ((String) -> Void)? = nil
+    ) async throws -> String {
         let userContent: String = {
             var parts: [String] = []
             if config.includeScriptAsContext, let ctx = scriptContext?.trimmingCharacters(in: .whitespacesAndNewlines), !ctx.isEmpty {
@@ -323,7 +347,15 @@ final class AIService: ObservableObject {
             }
 
             do {
-                let text = try await performRequest(url: url, model: a.model, apiKey: a.apiKey, messages: messages)
+                let text: String
+                if let onDelta {
+                    text = try await streamRequest(
+                        url: url, model: a.model, apiKey: a.apiKey, messages: messages,
+                        onDelta: onDelta, onReasoning: onReasoning
+                    )
+                } else {
+                    text = try await performRequest(url: url, model: a.model, apiKey: a.apiKey, messages: messages)
+                }
                 lastSuccessfulProvider = a.label
                 return text
             } catch {
@@ -344,18 +376,34 @@ final class AIService: ObservableObject {
         throw AIServiceError.networkError("No provider available")
     }
 
-    private func performRequest(url: URL, model: String, apiKey: String, messages: [AIChatMessage]) async throws -> String {
+    // MARK: - Request construction
+
+    private func makeRequest(
+        url: URL,
+        model: String,
+        apiKey: String,
+        messages: [AIChatMessage],
+        stream: Bool
+    ) throws -> URLRequest {
         let reqBody = AIChatCompletionRequest(
             model: model,
             messages: messages,
             temperature: config.temperature,
-            maxTokens: config.maxTokens
+            maxTokens: config.maxTokens,
+            stream: stream
         )
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(reqBody)
+        return request
+    }
+
+    // MARK: - Non-streaming
+
+    private func performRequest(url: URL, model: String, apiKey: String, messages: [AIChatMessage]) async throws -> String {
+        let request = try makeRequest(url: url, model: model, apiKey: apiKey, messages: messages, stream: false)
 
         let (data, response): (Data, URLResponse)
         do {
@@ -387,7 +435,132 @@ final class AIService: ObservableObject {
         }
     }
 
-    /// Fire-and-forget streaming variant could be added later; polling first.
+    // MARK: - Streaming
+
+    /// Stream a completion, reporting the accumulated answer as it grows.
+    ///
+    /// - `onDelta` receives the full answer text so far, not an increment.
+    /// - `onReasoning` receives accumulated reasoning text for models that emit
+    ///   `reasoning_content` before the answer (e.g. deepseek-reasoner). It is
+    ///   kept out of the visible answer on purpose.
+    ///
+    /// Providers that ignore `stream: true` and return a normal JSON body are
+    /// detected and handled without issuing a second request.
+    private func streamRequest(
+        url: URL,
+        model: String,
+        apiKey: String,
+        messages: [AIChatMessage],
+        onDelta: @escaping (String) -> Void,
+        onReasoning: ((String) -> Void)?
+    ) async throws -> String {
+        let request = try makeRequest(url: url, model: model, apiKey: apiKey, messages: messages, stream: true)
+
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await session.bytes(for: request)
+        } catch {
+            throw AIServiceError.networkError(error.localizedDescription)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw AIServiceError.networkError("No HTTP response")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let body = await Self.collectBody(bytes, limit: 4_096)
+            throw AIServiceError.httpError(http.statusCode, body)
+        }
+        var parser = SSEStreamParser()
+        var answer = ""
+        var reasoning = ""
+        var sawEvent = false
+        var sawDone = false
+        // Retained only in case the provider ignores stream:true and replies
+        // with a single non-SSE JSON body.
+        var fallbackBody = Data()
+        var pending = Data()
+        pending.reserveCapacity(8_192)
+
+        let decoder = JSONDecoder()
+
+        func consume(_ data: Data) {
+            for event in parser.append(data) {
+                if event.isDone { sawDone = true; return }
+                sawEvent = true
+                guard let chunk = try? decoder.decode(AIStreamChunk.self, from: Data(event.data.utf8)) else {
+                    continue
+                }
+                if let message = chunk.error?.message, !message.isEmpty {
+                    // Surfaced by the caller's error path below.
+                    return
+                }
+                guard let delta = chunk.choices?.first?.delta else { continue }
+                if let content = delta.content, !content.isEmpty {
+                    answer += content
+                    onDelta(answer)
+                }
+                if let r = delta.reasoning_content, !r.isEmpty {
+                    reasoning += r
+                    onReasoning?(reasoning)
+                }
+            }
+        }
+
+        do {
+            for try await byte in bytes {
+                if sawDone { break }
+                if !sawEvent, fallbackBody.count < 65_536 {
+                    fallbackBody.append(byte)
+                }
+                pending.append(byte)
+                // Batch to avoid per-byte parser overhead.
+                if pending.count >= 4_096 {
+                    consume(pending)
+                    pending.removeAll(keepingCapacity: true)
+                }
+            }
+        } catch {
+            throw AIServiceError.networkError(error.localizedDescription)
+        }
+
+        if !pending.isEmpty { consume(pending) }
+        for event in parser.flush() where event.isDone {
+            sawDone = true
+        }
+
+        // Provider ignored stream:true and returned a normal completion body.
+        if !sawEvent {
+            if let decoded = try? decoder.decode(AIChatCompletionResponse.self, from: fallbackBody),
+               let text = decoded.firstText?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !text.isEmpty {
+                onDelta(text)
+                return text
+            }
+            throw AIServiceError.decodingError("Stream produced no events")
+        }
+
+        let final = answer.isEmpty ? reasoning : answer
+        let trimmed = final.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw AIServiceError.decodingError("Stream produced an empty answer")
+        }
+        return trimmed
+    }
+
+    /// Read a bounded amount of a byte stream for error reporting.
+    private static func collectBody(_ bytes: URLSession.AsyncBytes, limit: Int) async -> String {
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                data.append(byte)
+                if data.count >= limit { break }
+            }
+        } catch {
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
 
     // MARK: - Provider ping (isolated)
 

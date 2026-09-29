@@ -269,6 +269,7 @@ private struct ListenControlButton: View {
         case .requestingPermission: return "mic.badge.plus"
         case .listening: return "waveform"
         case .thinking: return "hourglass"
+        case .streaming: return "ellipsis.bubble.fill"
         case .answering: return "checkmark.circle.fill"
         case .error: return "exclamationmark.triangle.fill"
         }
@@ -307,6 +308,7 @@ private struct ListenControlButton: View {
         case .requestingPermission: return "Requesting mic permission\u{2026}"
         case .listening: return "Listening\u{2026} tap again to send to AI, or wait for auto-send"
         case .thinking(let q): return "Thinking about: \(q.prefix(60))"
+        case .streaming: return "Answer is streaming in…"
         case .answering: return "Answer ready \u{2014} tap to listen for the next question"
         case .error(let m): return m
         }
@@ -356,6 +358,34 @@ private struct ListenAnswerCard: View {
                             Text(q).font(.system(size: 11, weight: .regular, design: .rounded)).foregroundStyle(.white.opacity(0.85)).lineLimit(2)
                         }
                         Spacer()
+                    }
+                }
+            case .streaming(let partial, let reasoning):
+                card {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            ProgressView().scaleEffect(0.5).frame(width: 10, height: 10).tint(.white)
+                            Text("Answering…").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.65)).textCase(.uppercase)
+                            if let provider = listen.lastProvider ?? AIService.shared.lastSuccessfulProvider {
+                                Text(provider).font(.system(size: 8, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                    .background(provider.lowercased().contains("deepseek") ? Color.purple.opacity(0.75) : Color.blue.opacity(0.75), in: Capsule())
+                            }
+                            Spacer()
+                            if !reasoning.isEmpty {
+                                Text("reasoning…")
+                                    .font(.system(size: 8, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.45))
+                            }
+                        }
+                        Text(partial)
+                            .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white)
+                            .lineLimit(5)
+                            .fixedSize(horizontal: false, vertical: false)
+                        // Blinking caret signals the answer is still arriving.
+                        Text("▌").font(.system(size: 12.5, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.7))
                     }
                 }
             case .answering(let ans):

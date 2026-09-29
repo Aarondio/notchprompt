@@ -165,6 +165,9 @@ struct ContentView: View {
                     Text("Keeps listening after each answer for the next question.")
                         .font(.caption2).foregroundStyle(.secondary)
                     Toggle("Show answer card in notch", isOn: $listen.showAnswerInNotch)
+                    Toggle("Stream answers as they arrive", isOn: $listen.streamAnswers)
+                    Text("Shows the first words in about a second instead of waiting for the whole answer. Turn off if your provider streams poorly.")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
 
                 Divider()

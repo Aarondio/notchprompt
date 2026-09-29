@@ -16,7 +16,10 @@ enum ListenState: Equatable {
     case requestingPermission
     case listening(transcript: String)
     case thinking(question: String)
-    case answering(String)   // holds answer
+    /// Answer is arriving token by token. `reasoning` is the model's internal
+    /// reasoning (DeepSeek R1) and is never shown as the answer.
+    case streaming(answer: String, reasoning: String)
+    case answering(String)   // holds completed answer
     case error(String)
 }
 
@@ -40,6 +43,9 @@ final class ListenModel: ObservableObject {
     }
     @Published var continuousListening: Bool = false // if true, auto-restart listening after each answer
     @Published var showAnswerInNotch: Bool = true
+    /// Stream answers so the first words appear immediately. Turn off to force
+    /// a single non-streamed response.
+    @Published var streamAnswers: Bool = true
 
     /// Notch-native AI provider/key setup panel.
     @Published var isAISetupVisible = false
@@ -47,6 +53,9 @@ final class ListenModel: ObservableObject {
     private let speech = SpeechRecognizerService()
     private let ai = AIService.shared
     private let prompter = PrompterModel.shared
+
+    /// Latest accumulated reasoning text, kept out of the visible answer.
+    private var currentReasoning: String = ""
 
     private var cancellables: Set<AnyCancellable> = []
 
@@ -213,7 +222,31 @@ final class ListenModel: ObservableObject {
         Task {
             do {
                 let scriptCtx = prompter.script
-                let answer = try await ai.answer(question: q, scriptContext: scriptCtx)
+                let onDelta: ((String) -> Void)? = streamAnswers
+                    ? { partial in
+                        // Only promote to streaming once content actually starts;
+                        // reasoning tokens must never become the visible answer.
+                        if case .thinking = self.state {
+                            self.state = .streaming(answer: partial, reasoning: "")
+                        } else if case .streaming = self.state {
+                            self.state = .streaming(answer: partial, reasoning: self.currentReasoning)
+                        }
+                    }
+                    : nil
+
+                let onReasoning: ((String) -> Void)? = streamAnswers
+                    ? { reasoning in
+                        self.currentReasoning = reasoning
+                    }
+                    : nil
+
+                let answer = try await ai.answer(
+                    question: q,
+                    scriptContext: scriptCtx,
+                    onDelta: onDelta,
+                    onReasoning: onReasoning
+                )
+                self.currentReasoning = ""
                 self.lastAnswer = answer
                 self.lastProvider = self.ai.lastSuccessfulProvider
                 self.state = .answering(answer)
@@ -227,6 +260,7 @@ final class ListenModel: ObservableObject {
                     self.startListening()
                 }
             } catch {
+                self.currentReasoning = ""
                 self.state = .error(error.localizedDescription)
                 // Allow retry: keep question
                 if self.continuousListening {

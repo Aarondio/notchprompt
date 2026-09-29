@@ -117,25 +117,48 @@ crash. **Not yet verified:** interactive scroll + seek, which needs manual use.
 
 ## 5. Phases
 
-### [ ] Phase 1 — Stream answers token-by-token
+### [x] Phase 1 — Stream answers token-by-token ✅ *shipped*
 
 **Goal:** first visible word in ~400ms instead of after the full response.
 
-`AIChatCompletionRequest` already carries a `stream` field that is hardcoded
+`AIChatCompletionRequest` already carried a `stream` field that was hardcoded
 `false`. This is mostly plumbing.
 
-- `AIService`: add `answer(question:context:onDelta:)` over
-  `URLSession.bytes(for:)` with SSE frame parsing (`data:` lines terminated by
-  `[DONE]`).
+- Added `SSEStreamParser` — a dependency-free incremental Server-Sent Events
+  parser. It buffers partial lines, which matters because
+  `URLSession.AsyncBytes` delivers **single bytes**; a naive line split drops
+  any frame that straddles two network reads.
+- `AIService.answer` gained `onDelta` / `onReasoning` callbacks. Supplying
+  `onDelta` selects the streaming path; omitting it keeps the original
+  non-streamed behaviour.
 - **Reasoning models:** `deepseek-reasoner` emits `reasoning_content` deltas
-  before the answer. Route these to the existing "Thinking…" state. If these
-  leak into the visible answer, users watch raw reasoning tokens scroll past.
-- Fall back to non-streaming if a provider rejects `stream: true`.
-- `ListenState` gains partial-answer rendering.
+  *before* the answer. Those are routed to a separate `reasoning` accumulator
+  and never mixed into the visible answer. If they leaked, users would watch
+  raw reasoning tokens scroll past.
+- **Providers that ignore `stream: true`** and return a normal JSON body are
+  detected (`sawEvent == false`) and parsed in place, with **no second request**
+  — so a proxy that strips streaming never double-bills you.
+- New `ListenState.streaming(answer:reasoning:)` renders partial text with a
+  caret, plus an `ellipsis.bubble` mic state and `answering…` header.
+- `streamAnswers` setting (default **on**) in `Settings → Listen & AI`.
 
-**Files:** `AIService.swift`, `ListenModel.swift`, `OverlayView.swift`
+**Files:** `SSEStreamParser.swift` (new), `SSESelfTests.swift` (new),
+`AIService.swift`, `ListenModel.swift`, `OverlayView.swift`, `ContentView.swift`,
+`AppDelegate.swift`
 
 **Risk:** Medium (async byte streams, actor hops) · **Effort:** ~1 day
+
+**Done when:** 11 `SSESelfTests` assertions cover single/multiple events, a
+payload split across chunks, byte-by-byte delivery, CRLF, comments and
+separators, the `[DONE]` sentinel, `data:` without a space, `flush()` of an
+unterminated line, empty input, and a realistic OpenAI chunk sequence
+reassembled from ragged socket reads. All pass at launch in DEBUG. Debug and
+Release both build clean; capture exclusion still `sharingState=0`.
+
+> **Not verified end-to-end:** a live streamed completion. No API key is
+> configured on this machine, so no real request has been issued. The parser
+> and reassembly are unit-tested, but the first real question is the true test
+> — particularly DeepSeek's `reasoning_content` handling.
 
 ---
 

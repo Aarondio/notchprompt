@@ -38,6 +38,9 @@ an AI assistant that answers background questions while you stay on camera.
 
 - **One-tap capture** — a mic control in the notch (or `⌥⌘L`) transcribes a
   question asked out loud on a call and answers it in the overlay.
+- **Streamed answers** — the response appears word by word, so you can start
+  speaking before it finishes. Reasoning models (DeepSeek R1) are handled
+  correctly: their internal reasoning is kept out of the answer you read.
 - **Provider picker + key entry inside the notch** — OpenAI, DeepSeek, Groq,
   OpenRouter, Together AI, or any custom OpenAI-compatible endpoint.
 - **Automatic fallback provider** — e.g. DeepSeek — retried whenever the primary
@@ -160,7 +163,8 @@ no intermediary service. Prompts and answers are not logged by Notchprompt.
 3. With **Auto-send after pause** enabled (default), about 1.4s of silence sends
    the question automatically. Disable it to send manually by tapping the mic a
    second time.
-4. The answer appears in a card, badged with the provider that answered. Use
+4. The answer appears in a card, badged with the provider that answered. It
+   streams in word by word, so you can start speaking before it finishes. Use
    **Copy** to grab it, or **To script** to append it to your scrolling script.
 
 **Continuous listening** resumes capture after each answer, so you can keep
