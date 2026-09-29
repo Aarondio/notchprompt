@@ -14,11 +14,15 @@ struct ContentView: View {
     @ObservedObject private var model = PrompterModel.shared
     @ObservedObject private var listen = ListenModel.shared
     @ObservedObject private var aiConfig = AIConfig.shared
+    @ObservedObject private var library = ScriptLibrary.shared
     @State private var testStatus: String?
     @State private var fallbackTestStatus: String?
     @State private var isTesting = false
     @State private var isTestingFallback = false
     @State private var cachedCount = AnswerCache.shared.count
+    @State private var newScriptName = ""
+    @State private var isNamingNewScript = false
+    @State private var renamingScriptID: UUID?
 
     private let rowLabelWidth: CGFloat = 164
     private let valueWidth: CGFloat = 56
@@ -28,6 +32,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 12) {
                 headerSection
                 playbackSection
+                scriptLibrarySection
                 listenAISection
                 appearanceSection
                 displaySection
@@ -106,6 +111,142 @@ struct ContentView: View {
                 )
             }
         }
+    }
+
+    private var scriptLibrarySection: some View {
+        SettingsSection(title: "Saved Scripts") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Keep a named library of scripts. Loading one replaces what's currently scrolling, and the menu bar lists your most recent for quick switching mid-call.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Button {
+                        newScriptName = suggestedScriptName()
+                        isNamingNewScript = true
+                    } label: {
+                        Label("Save current as…", systemImage: "plus")
+                    }
+                    .controlSize(.small)
+                    .disabled(model.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if isNamingNewScript {
+                        TextField("Script name", text: $newScriptName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 240)
+                            .onSubmit(commitNewScript)
+                        Button("Save") { commitNewScript() }
+                            .controlSize(.small)
+                            .keyboardShortcut(.defaultAction)
+                        Button("Cancel") { isNamingNewScript = false }
+                            .controlSize(.small)
+                            .keyboardShortcut(.cancelAction)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                if let error = library.lastError {
+                    HStack(spacing: 5) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9))
+                            .foregroundStyle(.orange)
+                        Text(error).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+
+                if library.scripts.isEmpty {
+                    Text("No saved scripts yet.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 6)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(library.scripts) { script in
+                            scriptRow(script)
+                            if script.id != library.scripts.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                    .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.09), lineWidth: 1))
+                }
+            }
+        }
+    }
+
+    private func scriptRow(_ script: SavedScript) -> some View {
+        let isCurrent = script.text == model.script
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                if renamingScriptID == script.id {
+                    TextField("Name", text: Binding(
+                        get: { script.name },
+                        set: { library.rename(script, to: $0) }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout)
+                    .frame(maxWidth: 220)
+                    .onSubmit { renamingScriptID = nil }
+                } else {
+                    Text(script.name)
+                        .font(.callout.weight(isCurrent ? .semibold : .regular))
+                        .lineLimit(1)
+                }
+                Text("\(script.shortSummary) · \(script.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 6)
+            if isCurrent {
+                Text("in use")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.green.opacity(0.75), in: Capsule())
+            }
+            Button("Load") {
+                model.script = script.text
+                model.resetScroll()
+            }
+            .controlSize(.small)
+            .disabled(isCurrent)
+            Button {
+                renamingScriptID = script.id
+            } label: {
+                Image(systemName: "pencil")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help("Rename")
+            Button { library.duplicate(script) } label: {
+                Image(systemName: "plus.square.on.square")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help("Duplicate")
+            Button { library.delete(script) } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help("Delete")
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+    }
+
+    /// Offer a sensible default so saving is usually one keystroke.
+    private func suggestedScriptName() -> String {
+        let date = Date()
+        return date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+    }
+
+    private func commitNewScript() {
+        let name = newScriptName.trimmingCharacters(in: .whitespacesAndNewlines)
+        library.save(name: name, to: model.script)
+        newScriptName = ""
+        isNamingNewScript = false
     }
 
     private var appearanceSection: some View {

@@ -30,8 +30,10 @@ an AI assistant that answers background questions while you stay on camera.
 - Menu bar utility workflow (`NP` status item).
 - Notch-adjacent floating overlay with transport controls.
 - Start/pause, reset, and jump back 5 seconds.
-- Adjustable speed, font size, overlay width, and overlay height.
+- Adjustable speed, font size, overlay width (with presets and `⌥⌘[` / `⌥⌘]`).
 - Optional countdown before scrolling starts, plus manual trackpad scrolling.
+- **Script library** — save named scripts and switch between them from Settings
+  or the status menu, without hunting for files.
 - Import/export plain text scripts.
 
 ### Listen — AI answers for background questions

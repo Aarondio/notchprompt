@@ -10,7 +10,7 @@ import Combine
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSMenuDelegate {
     private let shortcutModifiers: NSEvent.ModifierFlags = [.command, .option]
 
     private let model = PrompterModel.shared
@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         AIStructuredAnswerSelfTests.run()
         ListenHistorySelfTests.run()
         SpeechLocaleSelfTests.run()
+        ScriptLibrarySelfTests.run()
         SSESelfTests.run()
         QuestionGateSelfTests.run()
         AnswerCacheSelfTests.run()
@@ -287,6 +288,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         openScriptEditor.target = self
         menu.addItem(openScriptEditor)
 
+        installScriptsSubmenu(in: menu)
+
         menu.addItem(.separator())
 
         let open = NSMenuItem(title: "Settings…", action: #selector(openMainWindow), keyEquivalent: "")
@@ -302,6 +305,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         item.menu = menu
         statusItem = item
+    }
+
+    /// Build the "Scripts" submenu from the current library contents.
+    private func makeScriptsMenu() -> NSMenu {
+        let submenu = NSMenu()
+        submenu.title = "Scripts"
+
+        let library = ScriptLibrary.shared
+        let current = model.script
+
+        if library.scripts.isEmpty {
+            let empty = NSMenuItem(title: "No saved scripts", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            submenu.addItem(empty)
+        } else {
+            for script in library.scripts {
+                let item = NSMenuItem(
+                    title: script.name,
+                    action: #selector(loadScript(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = script.id.uuidString
+                item.toolTip = script.shortSummary
+                if script.text == current { item.state = .on }
+                submenu.addItem(item)
+            }
+        }
+
+        submenu.addItem(.separator())
+        let manage = NSMenuItem(title: "Manage Scripts…", action: #selector(openMainWindow), keyEquivalent: "")
+        manage.target = self
+        submenu.addItem(manage)
+
+        return submenu
+    }
+
+    private func installScriptsSubmenu(in menu: NSMenu) {
+        let container = NSMenuItem(title: "Scripts", action: nil, keyEquivalent: "")
+        container.submenu = makeScriptsMenu()
+        menu.addItem(container)
+    }
+
+    @objc private func loadScript(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let id = UUID(uuidString: raw),
+              let script = ScriptLibrary.shared.scripts.first(where: { $0.id == id })
+        else { return }
+        model.script = script.text
+        model.resetScroll()
     }
 
     // MARK: - Edit key handler (Cmd+C/V/X/A/Z bypass for menu-bar apps)
@@ -488,6 +541,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 #endif
 
     // MARK: - Menu Validation
+
+    /// Rebuild the Scripts submenu whenever the status menu opens, so a script
+    /// saved during this session shows up without a relaunch.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let container = menu.items.first(where: { $0.title == "Scripts" }) else { return }
+        container.submenu = makeScriptsMenu()
+    }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem === startPauseItem {

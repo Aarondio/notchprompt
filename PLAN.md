@@ -401,8 +401,7 @@ clean and all self-test groups pass at launch.
       Settings instead of mid-call. A new `SpeechLocale` type resolves stored
       codes case-insensitively and preserves unlisted-but-valid ones instead of
       resetting.
-- [ ] **Script library.** `ScriptFileIO` handles a single file. Named saved
-      scripts with a picker and recents. High value, unrelated to AI.
+- [x] **Script library.** ✅ Named saved scripts with a picker and recents. Stored as a single JSON file in the app's Documents directory, which under the App Sandbox resolves to the app container — the only location writable without user consent. One file means one atomic write and no filename sanitisation or collision handling. Settings has a **Saved Scripts** section with load, inline rename, duplicate, delete, and an "in use" badge; the status menu carries a **Scripts** submenu that rebuilds on open, so a script saved this session is switchable mid-call. Duplicate names are disambiguated case-insensitively while preserving the user's own capitalisation.
 - [ ] **First-run onboarding.** A new user's first experience today is tapping
       the mic and getting a red error card.
 - [ ] **Token / cost meter.** Parse `usage` from responses and surface spend.
