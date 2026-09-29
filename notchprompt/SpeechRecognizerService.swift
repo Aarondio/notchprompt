@@ -15,6 +15,10 @@ import Combine
 enum SpeechRecognizerError: LocalizedError {
     case notAuthorized
     case recognizerUnavailable
+    /// The language is not supported at all on this Mac.
+    case localeNotSupported(String)
+    /// The language is supported but its assets are not downloaded.
+    case localeNotInstalled(String)
     case audioEngineFailed(String)
     case alreadyRunning
 
@@ -23,7 +27,11 @@ enum SpeechRecognizerError: LocalizedError {
         case .notAuthorized:
             return "Microphone or Speech Recognition not authorized. Enable in System Settings → Privacy & Security."
         case .recognizerUnavailable:
-            return "Speech recognizer unavailable for this locale."
+            return "Speech recognizer unavailable right now."
+        case .localeNotSupported(let identifier):
+            return "\"\(identifier)\" is not a language this Mac can recognise. Pick another in Settings → Listen & AI."
+        case .localeNotInstalled(let identifier):
+            return "Speech recognition for \(identifier) is not downloaded. Add it in System Settings → Keyboard → Dictation, or choose another language."
         case .audioEngineFailed(let message):
             return "Audio engine failed: \(message)"
         case .alreadyRunning:
@@ -42,6 +50,53 @@ private final class SpeechAvailabilityRelay: NSObject, SFSpeechRecognizerDelegat
     }
 }
 
+/// A language offered for speech recognition.
+struct SpeechLocale: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let englishName: String
+
+    static let systemDefault = SpeechLocale(id: "", name: "System default", englishName: "System default")
+
+    /// Curated set covering the languages most likely to be spoken on a call.
+    /// A custom code can still be typed for anything not listed.
+    static let common: [SpeechLocale] = [
+        SpeechLocale(id: "en-US", name: "English (US)", englishName: "English (US)"),
+        SpeechLocale(id: "en-GB", name: "English (UK)", englishName: "English (UK)"),
+        SpeechLocale(id: "en-AU", name: "English (Australia)", englishName: "English (Australia)"),
+        SpeechLocale(id: "en-IN", name: "English (India)", englishName: "English (India)"),
+        SpeechLocale(id: "es-ES", name: "Español (España)", englishName: "Spanish (Spain)"),
+        SpeechLocale(id: "es-MX", name: "Español (México)", englishName: "Spanish (Mexico)"),
+        SpeechLocale(id: "fr-FR", name: "Français (France)", englishName: "French (France)"),
+        SpeechLocale(id: "de-DE", name: "Deutsch", englishName: "German"),
+        SpeechLocale(id: "pt-BR", name: "Português (Brasil)", englishName: "Portuguese (Brazil)"),
+        SpeechLocale(id: "it-IT", name: "Italiano", englishName: "Italian"),
+        SpeechLocale(id: "nl-NL", name: "Nederlands", englishName: "Dutch"),
+        SpeechLocale(id: "pl-PL", name: "Polski", englishName: "Polish"),
+        SpeechLocale(id: "tr-TR", name: "Türkçe", englishName: "Turkish"),
+        SpeechLocale(id: "ar-SA", name: "العربية", englishName: "Arabic"),
+        SpeechLocale(id: "hi-IN", name: "हिन्दी", englishName: "Hindi"),
+        SpeechLocale(id: "ja-JP", name: "日本語", englishName: "Japanese"),
+        SpeechLocale(id: "ko-KR", name: "한국어", englishName: "Korean"),
+        SpeechLocale(id: "zh-Hans", name: "中文 (简体)", englishName: "Chinese (Simplified)"),
+        SpeechLocale(id: "zh-Hant", name: "中文 (繁體)", englishName: "Chinese (Traditional)")
+    ]
+
+    static var all: [SpeechLocale] { [.systemDefault] + common }
+
+    /// Resolve a stored identifier to one of the offered locales, so a saved
+    /// value that is no longer listed still round-trips instead of resetting.
+    static func resolve(_ identifier: String) -> SpeechLocale {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return .systemDefault }
+        return all.first { $0.id.caseInsensitiveCompare(trimmed) == .orderedSame } ?? custom(trimmed)
+    }
+
+    static func custom(_ identifier: String) -> SpeechLocale {
+        SpeechLocale(id: identifier, name: identifier, englishName: identifier)
+    }
+}
+
 @MainActor
 final class SpeechRecognizerService: NSObject, ObservableObject {
     @Published private(set) var isListening = false
@@ -51,6 +106,8 @@ final class SpeechRecognizerService: NSObject, ObservableObject {
     @Published private(set) var isMicrophoneAuthorized = false
     @Published private(set) var isRecognizerAvailable = true
     @Published private(set) var lastError: String?
+    /// Locale the last listening attempt used, for diagnostics in the UI.
+    @Published private(set) var activeLocaleIdentifier: String = ""
 
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -79,7 +136,10 @@ final class SpeechRecognizerService: NSObject, ObservableObject {
             Task { @MainActor in self?.isRecognizerAvailable = available }
         }
 
-        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: defaultLocaleIdentifier))
+        // Placeholder recognizer in the system locale. The real one is built in
+        // `startListening(localeIdentifier:)`, which is what honours the user's
+        // chosen language.
+        speechRecognizer = SFSpeechRecognizer()
         speechRecognizer?.delegate = availabilityRelay
         isRecognizerAvailable = speechRecognizer?.isAvailable ?? true
     }
@@ -139,21 +199,25 @@ final class SpeechRecognizerService: NSObject, ObservableObject {
         guard !isListening else { throw SpeechRecognizerError.alreadyRunning }
         lastError = nil
 
+        // An empty identifier means "use the system default", which is what a
+        // user who has not chosen a language should get.
+        let requested = (localeIdentifier ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        activeLocaleIdentifier = requested.isEmpty ? defaultLocaleIdentifier : requested
+
         let recognizer: SFSpeechRecognizer
-        if let identifier = localeIdentifier,
-           let localized = SFSpeechRecognizer(locale: Locale(identifier: identifier)) {
+        if let localized = SFSpeechRecognizer(locale: Locale(identifier: activeLocaleIdentifier)) {
             recognizer = localized
-        } else if let existing = speechRecognizer {
-            recognizer = existing
-        } else if let fallback = SFSpeechRecognizer(locale: Locale(identifier: defaultLocaleIdentifier)) {
-            recognizer = fallback
         } else {
-            throw SpeechRecognizerError.recognizerUnavailable
+            // The language is not supported at all on this machine.
+            isRecognizerAvailable = false
+            throw SpeechRecognizerError.localeNotSupported(activeLocaleIdentifier)
         }
 
         guard recognizer.isAvailable else {
+            // Recognised but not downloaded. Say so, rather than silently
+            // transcribing in the wrong language.
             isRecognizerAvailable = false
-            throw SpeechRecognizerError.recognizerUnavailable
+            throw SpeechRecognizerError.localeNotInstalled(activeLocaleIdentifier)
         }
         isRecognizerAvailable = true
 

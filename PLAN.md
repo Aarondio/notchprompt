@@ -391,22 +391,33 @@ clean and all self-test groups pass at launch.
 
 ---
 
-### [ ] Phase 7 — Foundational gaps
+### [~] Phase 7 — Foundational gaps
 
+- [x] **Speech locale picker.** ✅ Fixed a real defect: `startListening(localeIdentifier:)`
+      was never called with an argument, so recognition was pinned to en-US and
+      Listen was broken for every non-English speaker. There is now a
+      **Speech language** picker (system default plus 18 common languages) with
+      a live availability check, so an un-downloaded language is discovered in
+      Settings instead of mid-call. A new `SpeechLocale` type resolves stored
+      codes case-insensitively and preserves unlisted-but-valid ones instead of
+      resetting.
 - [ ] **Script library.** `ScriptFileIO` handles a single file. Named saved
       scripts with a picker and recents. High value, unrelated to AI.
-- [ ] **Speech locale picker.** `defaultLocaleIdentifier = "en-US"` is hardcoded
-      and `startListening(localeIdentifier:)` is *never called with an argument*.
-      **Listen is currently broken for any non-English speaker.** Highest
-      severity item in this phase for the cost of the fix.
 - [ ] **First-run onboarding.** A new user's first experience today is tapping
       the mic and getting a red error card.
 - [ ] **Token / cost meter.** Parse `usage` from responses and surface spend.
 
-**Files:** `ScriptFileIO.swift`, `ScriptLibrary.swift` (new),
-`SpeechRecognizerService.swift`, `ContentView.swift`, `AIService.swift`
+**Also shipped alongside the locale fix:** every Listen setting now persists.
+`autoSendOnSilence`, `continuousListening`, `showAnswerInNotch`,
+`streamAnswers`, the question-gate settings, `silenceThreshold`, and the new
+locale were all in-memory only, so any tuning was silently lost on relaunch. A
+language choice that reset every launch would have made the locale fix useless,
+so persistence was a prerequisite rather than a bonus.
 
-**Risk:** Low each · **Effort:** ~1 day total
+**Files:** `SpeechRecognizerService.swift`, `SpeechLocaleSelfTests.swift`
+(new), `ListenModel.swift`, `ContentView.swift`, `AppDelegate.swift`
+
+**Risk:** Low · **Effort:** ~0.5 day
 
 ---
 

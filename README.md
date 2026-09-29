@@ -53,6 +53,8 @@ an AI assistant that answers background questions while you stay on camera.
   talk you are in — not a generic read of the whole thing.
 - **Automatic fallback provider** — e.g. DeepSeek — retried whenever the primary
   fails (rate limit, 5xx, network error, or invalid key).
+- **Multi-language** — set the language you speak on the call; the AI replies in
+  whichever language the question was asked in. All Listen settings persist.
 - **Hands-free or manual send**, with a tunable pause-before-sending, and
   continuous listening for follow-up questions.
 - **Spends less.** Small talk and filler are filtered out before a request is
@@ -171,8 +173,12 @@ card at the bottom of the overlay.
    retried automatically. DeepSeek is a good, inexpensive fallback.
 
 Keys are saved to the macOS **Keychain**. The same editor, plus the system prompt,
-temperature, max tokens, and a question/answer history, is in
+temperature, max tokens, speech language, and a question/answer history, is in
 `Settings… → Listen & AI` (also reachable from the panel's *Full Settings…*).
+
+**Speech language** defaults to your Mac's language. Change it if you take calls
+in another language — recognition quality depends on matching it. The picker
+checks whether the language's assets are downloaded and tells you if not.
 
 ### Supported providers
 

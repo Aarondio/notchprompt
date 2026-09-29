@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import CoreGraphics
+import Speech
 
 struct ContentView: View {
     @ObservedObject private var model = PrompterModel.shared
@@ -230,6 +231,31 @@ struct ContentView: View {
                     Toggle("Stream answers as they arrive", isOn: $listen.streamAnswers)
                     Text("Shows the first words in about a second instead of waiting for the whole answer. Turn off if your provider streams poorly.")
                         .font(.caption2).foregroundStyle(.secondary)
+
+                    Divider().padding(.vertical, 2)
+
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Speech language")
+                            .frame(width: rowLabelWidth, alignment: .leading)
+                        Picker(
+                            "",
+                            selection: Binding(
+                                get: { SpeechLocale.resolve(listen.speechLocaleIdentifier).id },
+                                set: { listen.speechLocaleIdentifier = $0 }
+                            )
+                        ) {
+                            ForEach(SpeechLocale.all) { locale in
+                                Text(locale.name).tag(locale.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        Spacer(minLength: 0)
+                    }
+                    Text("The language you speak during the call. Must match the language you are answering in — the AI replies in whichever language the question was asked in.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    languageStatusRow
                 }
 
                 Divider()
@@ -403,6 +429,46 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    /// Live availability check for the chosen speech language, so an uninstalled
+    /// language is discovered in Settings rather than mid-call.
+    @ViewBuilder
+    private var languageStatusRow: some View {
+        let identifier = listen.speechLocaleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if identifier.isEmpty {
+            HStack(spacing: 5) {
+                Image(systemName: "globe").font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                Text("Using your Mac's default language.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+        } else {
+            let state = speechAvailability(for: identifier)
+            HStack(spacing: 5) {
+                Image(systemName: state.available ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(state.available ? Color.green : Color.orange)
+                Text(state.message)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func speechAvailability(for identifier: String) -> (available: Bool, message: String) {
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: identifier)) else {
+            return (false, "\(identifier) is not a language this Mac can recognise.")
+        }
+        if recognizer.isAvailable {
+            return (true, "\(identifier) is ready.")
+        }
+        return (
+            false,
+            "\(identifier) is supported but not downloaded. Add it in System Settings → Keyboard → Dictation."
+        )
     }
 
     private func runAIQuickTest() async {

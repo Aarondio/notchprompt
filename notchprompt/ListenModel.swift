@@ -69,22 +69,73 @@ final class ListenModel: ObservableObject {
     /// The supporting quote for whatever is on screen right now.
     var activeQuote: String? { browsedEntry?.quote ?? lastScriptQuote }
 
-    /// Settings
-    @Published var autoSendOnSilence: Bool = true {
-        didSet { speech.autoSendOnSilence = autoSendOnSilence }
+    /// Settings. All of these persist, so a language or tuning choice survives a
+    /// relaunch instead of silently resetting.
+    @Published var autoSendOnSilence: Bool {
+        didSet {
+            speech.autoSendOnSilence = autoSendOnSilence
+            Defaults.set(autoSendOnSilence, .autoSend)
+        }
     }
-    @Published var continuousListening: Bool = false // if true, auto-restart listening after each answer
-    @Published var showAnswerInNotch: Bool = true
+    @Published var continuousListening: Bool {
+        didSet { Defaults.set(continuousListening, .continuous) }
+    }
+    @Published var showAnswerInNotch: Bool {
+        didSet { Defaults.set(showAnswerInNotch, .showAnswerCard) }
+    }
     /// Stream answers so the first words appear immediately. Turn off to force
     /// a single non-streamed response.
-    @Published var streamAnswers: Bool = true
+    @Published var streamAnswers: Bool {
+        didSet { Defaults.set(streamAnswers, .streamAnswers) }
+    }
     /// Skip small talk instead of spending a request on it.
-    @Published var questionGateEnabled: Bool = true
+    @Published var questionGateEnabled: Bool {
+        didSet { Defaults.set(questionGateEnabled, .gateEnabled) }
+    }
     /// Utterance length at or above which we send regardless of wording.
-    @Published var questionGateMinWords: Int = 6
+    @Published var questionGateMinWords: Int {
+        didSet { Defaults.set(questionGateMinWords, .gateMinWords) }
+    }
     /// How long a pause must be before an utterance is considered finished.
-    @Published var silenceThreshold: TimeInterval = 1.4 {
-        didSet { speech.silenceThreshold = silenceThreshold }
+    @Published var silenceThreshold: TimeInterval {
+        didSet {
+            speech.silenceThreshold = silenceThreshold
+            Defaults.set(silenceThreshold, .silenceThreshold)
+        }
+    }
+    /// BCP-47 identifier for speech recognition. Empty means system default.
+    @Published var speechLocaleIdentifier: String {
+        didSet { Defaults.set(speechLocaleIdentifier, .speechLocale) }
+    }
+
+    private enum DefaultsKey: String {
+        case autoSend = "listenAutoSend"
+        case continuous = "listenContinuous"
+        case showAnswerCard = "listenShowAnswerCard"
+        case streamAnswers = "listenStreamAnswers"
+        case gateEnabled = "listenGateEnabled"
+        case gateMinWords = "listenGateMinWords"
+        case silenceThreshold = "listenSilenceThreshold"
+        case speechLocale = "listenSpeechLocale"
+    }
+
+    private enum Defaults {
+        static let store = UserDefaults.standard
+        static func set(_ value: Any, _ key: DefaultsKey) {
+            store.set(value, forKey: key.rawValue)
+        }
+        static func bool(_ key: DefaultsKey, default fallback: Bool) -> Bool {
+            store.object(forKey: key.rawValue) as? Bool ?? fallback
+        }
+        static func int(_ key: DefaultsKey, default fallback: Int) -> Int {
+            store.object(forKey: key.rawValue) as? Int ?? fallback
+        }
+        static func double(_ key: DefaultsKey, default fallback: Double) -> Double {
+            store.object(forKey: key.rawValue) as? Double ?? fallback
+        }
+        static func string(_ key: DefaultsKey, default fallback: String) -> String {
+            store.string(forKey: key.rawValue) ?? fallback
+        }
     }
 
     /// Notch-native AI provider/key setup panel.
@@ -107,6 +158,15 @@ final class ListenModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
 
     private init() {
+        _autoSendOnSilence = Published(initialValue: Defaults.bool(.autoSend, default: true))
+        _continuousListening = Published(initialValue: Defaults.bool(.continuous, default: false))
+        _showAnswerInNotch = Published(initialValue: Defaults.bool(.showAnswerCard, default: true))
+        _streamAnswers = Published(initialValue: Defaults.bool(.streamAnswers, default: true))
+        _questionGateEnabled = Published(initialValue: Defaults.bool(.gateEnabled, default: true))
+        _questionGateMinWords = Published(initialValue: Defaults.int(.gateMinWords, default: 6))
+        _silenceThreshold = Published(initialValue: Defaults.double(.silenceThreshold, default: 1.4))
+        _speechLocaleIdentifier = Published(initialValue: Defaults.string(.speechLocale, default: ""))
+
         speech.autoSendOnSilence = autoSendOnSilence
         speech.silenceThreshold = silenceThreshold
 
@@ -182,7 +242,7 @@ final class ListenModel: ObservableObject {
             let ok = await ensurePermission()
             guard ok else { return }
             do {
-                try speech.startListening()
+                try speech.startListening(localeIdentifier: speechLocaleIdentifier)
                 isListening = true
                 state = .listening(transcript: "")
                 lastTranscript = ""
