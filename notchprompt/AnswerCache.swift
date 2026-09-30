@@ -22,6 +22,10 @@ final class AnswerCache {
         let answer: String
         let provider: String?
         let model: String?
+        /// The script line this answer was drawn from, so a cached answer can
+        /// still offer Jump to line. Optional and decoded with `decodeIfPresent`,
+        /// which means cache files written before this field existed still load.
+        let quote: String?
         let createdAt: Date
         var hitCount: Int
     }
@@ -114,6 +118,7 @@ final class AnswerCache {
         answer: String,
         provider: String?,
         model: String?,
+        quote: String? = nil,
         contextKey: String = ""
     ) -> Entry? {
         let trimmedAnswer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -131,6 +136,7 @@ final class AnswerCache {
             answer: trimmedAnswer,
             provider: provider,
             model: model,
+            quote: quote,
             createdAt: Date(),
             hitCount: 0
         )

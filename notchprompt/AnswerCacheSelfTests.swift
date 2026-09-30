@@ -19,6 +19,70 @@ enum AnswerCacheSelfTests {
         assertEvictionDropsLeastRecentlyUsed()
         assertExpiryRemovesEntry()
         assertRemoveAndClearWork()
+        assertQuoteRoundTrips()
+        assertLegacyEntriesWithoutQuoteStillDecode()
+    }
+
+    /// Regression: a cached answer used to lose its script quote, so recall and
+    /// cache hits either showed no Jump button or jumped to the *previous*
+    /// answer's line.
+    private static func assertQuoteRoundTrips() {
+        let cache = makeCache()
+        cache.store(
+            question: "what is your pricing",
+            answer: "Fifty a seat per month.",
+            provider: "DeepSeek",
+            model: "deepseek-chat",
+            quote: "our annual plan is fifty a seat"
+        )
+        let hit = cache.lookup("what is your pricing")
+        assert(hit != nil, "Precondition: the entry should be cached")
+        assert(
+            hit?.quote == "our annual plan is fifty a seat",
+            "The quote must survive the cache round trip, got \(String(describing: hit?.quote))"
+        )
+
+        // An answer with no quote must store nil rather than inheriting one.
+        cache.store(
+            question: "do you have sso here",
+            answer: "Yes, SAML and SCIM.",
+            provider: "DeepSeek",
+            model: "deepseek-chat"
+        )
+        let noQuote = cache.lookup("do you have sso here")
+        assert(
+            noQuote?.quote == nil,
+            "An answer with no quote must store nil, got \(String(describing: noQuote?.quote))"
+        )
+    }
+
+    /// Adding `quote` to a persisted `Codable` struct must not orphan cache files
+    /// written by an earlier build.
+    private static func assertLegacyEntriesWithoutQuoteStillDecode() {
+        let legacy = """
+        [{"id":"what is your pricing","question":"What is your pricing?",
+          "answer":"Fifty a seat.","provider":"OpenAI","model":"gpt-4o-mini",
+          "createdAt":"2026-01-01T00:00:00Z","hitCount":0}]
+        """
+        guard let data = legacy.data(using: .utf8) else {
+            assertionFailure("Could not build the legacy payload")
+            return
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let decoded = try? decoder.decode([AnswerCache.Entry].self, from: data) else {
+            assertionFailure("A cache file written before `quote` existed must still decode")
+            return
+        }
+        assert(decoded.count == 1, "Expected one legacy entry, got \(decoded.count)")
+        assert(
+            decoded.first?.quote == nil,
+            "A legacy entry should decode with no quote, got \(String(describing: decoded.first?.quote))"
+        )
+        assert(
+            decoded.first?.answer == "Fifty a seat.",
+            "Legacy entry content must be preserved"
+        )
     }
 
     private static func makeCache(maxEntries: Int = 100, ttl: TimeInterval = 0) -> AnswerCache {

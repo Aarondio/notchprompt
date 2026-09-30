@@ -401,6 +401,12 @@ final class AIService: ObservableObject {
         forceRefresh: Bool = false,
         wantsScriptQuote: Bool = false
     ) async throws -> String {
+        // Every answer starts by clearing the previous quote. Without this, a
+        // provider that does not return a quote — or a request that fails —
+        // would leave the *previous* answer's quote in place, and the Jump
+        // button would jump the speaker somewhere unrelated.
+        lastScriptQuote = nil
+
         // Repeated questions are answered instantly and for free. When we know
         // where the speaker is, the bucket is part of the key so an answer given
         // during the pricing section is not reused during the close.
@@ -409,6 +415,9 @@ final class AIService: ObservableObject {
             if let hit = AnswerCache.shared.lookup(question, contextKey: contextKey) {
                 lastSuccessfulProvider = hit.provider
                 lastAnswerWasCached = true
+                // Restore the quote stored with the answer, so a cached answer
+                // jumps to the same line the original did.
+                lastScriptQuote = hit.quote
                 onDelta?(hit.answer)
                 return hit.answer
             }
@@ -576,6 +585,7 @@ final class AIService: ObservableObject {
                         answer: answer,
                         provider: a.label,
                         model: a.model,
+                        quote: quote,
                         contextKey: contextKey
                     )
                 }
@@ -652,11 +662,33 @@ final class AIService: ObservableObject {
             }
             return text
         } catch let err as AIServiceError {
+            // Some self-hosted OpenAI-compatible servers (LM Studio, llama.cpp,
+            // Ollama's compat endpoint) return the structured object itself
+            // instead of wrapping it in a chat completion. Accept that shape
+            // rather than failing the answer with "Empty choices".
+            if jsonMode, let bare = Self.decodeBareStructuredObject(data) {
+                return bare
+            }
             throw err
         } catch {
+            if jsonMode, let bare = Self.decodeBareStructuredObject(data) {
+                return bare
+            }
             let raw = String(data: data, encoding: .utf8) ?? ""
             throw AIServiceError.decodingError("\(error.localizedDescription) — raw: \(raw.prefix(500))")
         }
+    }
+
+    /// Re-encodes a bare structured answer to the JSON text the caller expects,
+    /// or nil if `data` is not a self-describing structured answer.
+    private static func decodeBareStructuredObject(_ data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let answer = object["answer"] as? String,
+              !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let reencoded = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: reencoded, encoding: .utf8)
+        else { return nil }
+        return text
     }
 
     // MARK: - Streaming

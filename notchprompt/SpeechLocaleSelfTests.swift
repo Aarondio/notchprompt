@@ -19,6 +19,66 @@ enum SpeechLocaleSelfTests {
         assertResolveIsCaseInsensitive()
         assertResolveTrimsWhitespace()
         assertEveryListedLocaleIsWellFormed()
+        assertEmptyRequestFollowsTheSystemLocale()
+        assertExplicitRequestIsNotOverridden()
+    }
+
+    // MARK: - System-default resolution
+
+    /// Regression: "System default" used to resolve to a hardcoded `en-US`, so a
+    /// user on a French system got English transcription while the picker claimed
+    /// to follow the system.
+    private static func assertEmptyRequestFollowsTheSystemLocale() {
+        let resolved = SpeechRecognizerService.resolvedLocaleIdentifier(
+            for: "",
+            systemLocale: { "fr-FR" }
+        )
+        assert(
+            resolved == "fr-FR",
+            "An empty request must follow the system locale, got \(resolved)"
+        )
+        assert(
+            resolved != "en-US",
+            "System default must not be pinned to en-US"
+        )
+
+        let nilRequest = SpeechRecognizerService.resolvedLocaleIdentifier(
+            for: nil,
+            systemLocale: { "de-DE" }
+        )
+        assert(
+            nilRequest == "de-DE",
+            "A nil request must follow the system locale, got \(nilRequest)"
+        )
+
+        let whitespace = SpeechRecognizerService.resolvedLocaleIdentifier(
+            for: "   \n ",
+            systemLocale: { "ja-JP" }
+        )
+        assert(
+            whitespace == "ja-JP",
+            "A whitespace-only request must follow the system locale, got \(whitespace)"
+        )
+    }
+
+    private static func assertExplicitRequestIsNotOverridden() {
+        let resolved = SpeechRecognizerService.resolvedLocaleIdentifier(
+            for: "en-GB",
+            systemLocale: { "fr-FR" }
+        )
+        assert(
+            resolved == "en-GB",
+            "An explicit choice must win over the system locale, got \(resolved)"
+        )
+
+        let trimmed = SpeechRecognizerService.resolvedLocaleIdentifier(
+            for: "  en-GB  ",
+            systemLocale: { "fr-FR" }
+        )
+        assert(
+            trimmed == "en-GB",
+            "An explicit choice should be trimmed, got \(trimmed)"
+        )
     }
 
     private static func assertSystemDefaultHasEmptyIdentifier() {

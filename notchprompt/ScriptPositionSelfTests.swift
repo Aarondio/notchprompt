@@ -20,7 +20,33 @@ enum ScriptPositionSelfTests {
         assertSeekByProgressMapsIntoPhaseRange()
         assertSeekClampsOutOfRangeProgress()
         assertResetClearsState()
+        assertResetClearsHighlight()
         assertSnapshotGeometryRoundTrip()
+    }
+
+    /// Regression: `reset()` left `highlight` intact, and `ScrollingTextView`
+    /// calls `reset()` whenever the script text is replaced — so a stale range
+    /// was interpreted against the *new* text, highlighting an arbitrary span of
+    /// a script the user never asked to jump to.
+    private static func assertResetClearsHighlight() {
+        let model = makeModel(
+            contentHeight: 1000,
+            viewportHeight: 150,
+            startAnchorOffset: 20,
+            phase: 400
+        )
+        model.highlight = ScriptHighlight(range: 40..<60, token: UUID())
+        assert(model.highlight != nil, "Precondition: a highlight should be set")
+
+        model.reset()
+        assert(
+            model.highlight == nil,
+            "reset() must clear the highlight, still got \(String(describing: model.highlight))"
+        )
+
+        // Idempotent: clearing when nothing is set must not trap.
+        model.clearHighlight()
+        assert(model.highlight == nil, "clearHighlight() should be safe to call twice")
     }
 
     // MARK: - Progress math

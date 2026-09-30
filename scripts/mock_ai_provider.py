@@ -43,6 +43,31 @@ def structured_object():
     }
 
 
+def structured_completion():
+    """Spec-correct JSON mode: still a chat completion, whose message content
+    is a JSON *string*. OpenAI's response_format does not change the envelope."""
+    return {
+        "id": "chatcmpl-mock",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "mock-model",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": json.dumps(structured_object()),
+            },
+            "finish_reason": "stop",
+        }],
+    }
+
+
+def bare_object_completion():
+    """Non-conformant shape some self-hosted servers return: the structured
+    object at the top level with no chat completion envelope."""
+    return structured_object()
+
+
 def sse_frames(payload_object, words):
     """Yield raw SSE bytes for a streamed response, chunk by word."""
     yield b'data: {"choices":[{"delta":{"role":"assistant"},"index":0}]}\n\n'
@@ -111,7 +136,10 @@ class Handler(BaseHTTPRequestHandler):
         # Providers that ignore `stream:true` return a normal completion body.
         if path.startswith("/nostream/") or not wants_stream:
             if wants_json:
-                send(200, structured_object())
+                if path.startswith("/bare/"):
+                    send(200, bare_object_completion())
+                else:
+                    send(200, structured_completion())
             else:
                 send(200, chat_completion())
             return

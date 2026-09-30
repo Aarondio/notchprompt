@@ -82,6 +82,20 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         OverlayGeometry.widthRange(forScreenWidth: targetScreenWidth)
     }
 
+    /// The width the overlay is actually allowed to draw at, given the display
+    /// it currently lives on.
+    ///
+    /// `overlayWidth` is the user's stored preference and is deliberately *not*
+    /// rewritten when the display changes, so moving the overlay to a narrower
+    /// screen and back does not quietly discard the original number. That means
+    /// the stored value can be out of range for the current display, and both the
+    /// window controller and the SwiftUI content must agree on the clamped value
+    /// — otherwise the panel is sized to the screen while its content lays out
+    /// at the stale width and gets clipped.
+    var effectiveOverlayWidth: Double {
+        OverlayGeometry.clamp(width: overlayWidth, forScreenWidth: targetScreenWidth)
+    }
+
     /// Re-read the target display width. Call when displays change.
     func refreshTargetScreenWidth() {
         let width = OverlayGeometry.targetScreenWidth(selectedScreenID: selectedScreenID)

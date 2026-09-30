@@ -69,7 +69,12 @@ final class OverlayWindowController {
 
         let hosting = ClickThroughHostingView(rootView: OverlayView(model: model))
 
-        let initialFrame = NSRect(x: 0, y: 0, width: model.overlayWidth, height: model.effectiveOverlayHeight)
+        let initialFrame = NSRect(
+            x: 0,
+            y: 0,
+            width: model.effectiveOverlayWidth,
+            height: model.effectiveOverlayHeight
+        )
         let panel = OverlayPanel(
             contentRect: initialFrame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -143,11 +148,10 @@ final class OverlayWindowController {
         guard let screen = targetScreen() ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
         // Clamp to the target display so a wide setting can never push the
-        // panel off both edges of a narrow screen.
-        let width = OverlayGeometry.clamp(
-            width: model.overlayWidth,
-            forScreenWidth: screen.frame.width
-        )
+        // panel off both edges of a narrow screen. This deliberately reads the
+        // same `effectiveOverlayWidth` the SwiftUI content lays out against, so
+        // the panel frame and the content frame can never disagree.
+        let width = model.effectiveOverlayWidth
         let desiredHeight = CGFloat(model.effectiveOverlayHeight)
 
         let x = (screen.frame.midX - (width / 2)).rounded()

@@ -137,6 +137,11 @@ final class ScriptPositionModel: ObservableObject {
         progressFraction = 0
         savedPhaseForResume = nil
         pendingSeekPhase = nil
+        // Drop any highlight too. `ScrollingTextView` calls this whenever the
+        // script text is replaced, and a leftover range would otherwise be
+        // interpreted against the new text — highlighting an arbitrary span of
+        // a script the user never asked to jump to.
+        clearHighlight()
     }
 
     /// Called when scrolling pauses so the position can be restored later.

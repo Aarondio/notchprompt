@@ -31,6 +31,10 @@ enum AIServiceIntegrationTests {
         await testResponseFormatRejectedIsRetried(baseURL: baseURL)
         await testFallbackProviderIsUsed(baseURL: baseURL)
         await testNoProviderAvailableThrows(baseURL: baseURL)
+        await testCacheHitRestoresItsOwnQuote(baseURL: baseURL)
+        await testAnswerWithoutQuoteClearsTheStaleOne(baseURL: baseURL)
+        await testNonStreamingStructuredAnswerWorks(baseURL: baseURL)
+        await testBareStructuredObjectIsAccepted(baseURL: baseURL)
 
         print("")
         if failures.isEmpty {
@@ -212,5 +216,152 @@ enum AIServiceIntegrationTests {
             scriptContext: nil
         )
         expect(answer == nil, "With every provider failing, the call should throw")
+    }
+
+    // MARK: - Quote lifecycle (regression)
+
+    /// Regression: the quote was never cleared or cached, so a cache hit replayed
+    /// the *previous* answer's quote and Jump sent the speaker to the wrong line.
+    @MainActor
+    private static func testCacheHitRestoresItsOwnQuote(baseURL: String) async {
+        AnswerCache.shared.clear()
+        configure(primaryPath: baseURL)
+        AIConfig.shared.answerCacheEnabled = true
+
+        // First, a real request, which stores an entry with a quote.
+        do {
+            _ = try await AIService.shared.answer(
+                question: "How much is the annual plan?",
+                scriptContext: nil,
+                wantsScriptQuote: true
+            )
+        } catch {
+            expect(false, "The first answer should succeed, threw: \(error)")
+        }
+
+        let original = AIService.shared.lastScriptQuote
+        expect(
+            original?.contains("objection number 27") == true,
+            "Precondition: the first answer should carry a quote, got \(String(describing: original))"
+        )
+
+        // Overwrite the stored quote with a distinctly different one. The
+        // next call is a cache hit, so the quote it reports must come from the
+        // entry. Before the fix, `lastScriptQuote` was never touched on a cache
+        // hit and simply kept whatever the previous request had left there.
+        AnswerCache.shared.store(
+            question: "How much is the annual plan?",
+            answer: "Fifty a seat per month.",
+            provider: "DeepSeek",
+            model: "mock-model",
+            quote: "a different quote that only exists in the cache entry"
+        )
+        let cached = try? await AIService.shared.answer(
+            question: "How much is the annual plan?",
+            scriptContext: nil,
+            wantsScriptQuote: true
+        )
+        expect(
+            AIService.shared.lastAnswerWasCached,
+            "Precondition: the second call should be a cache hit"
+        )
+        expect(cached != nil, "A cache hit should still return the answer")
+        expect(
+            AIService.shared.lastScriptQuote == "a different quote that only exists in the cache entry",
+            "A cache hit must take its quote from the entry, got \(String(describing: AIService.shared.lastScriptQuote))"
+        )
+        expect(
+            AIService.shared.lastScriptQuote != original,
+            "A cache hit must not keep the previous answer's quote"
+        )
+    }
+
+    /// Regression: a provider that returns no quote must clear the previous one
+    /// rather than leaving a Jump button pointing at unrelated text.
+    @MainActor
+    private static func testAnswerWithoutQuoteClearsTheStaleOne(baseURL: String) async {
+        AnswerCache.shared.clear()
+        configure(primaryPath: baseURL)
+        AIConfig.shared.answerCacheEnabled = false
+
+        _ = try? await AIService.shared.answer(
+            question: "Tell me about the objection handling",
+            scriptContext: nil,
+            wantsScriptQuote: true
+        )
+        expect(
+            AIService.shared.lastScriptQuote != nil,
+            "Precondition: the structured answer should have a quote"
+        )
+
+        // Now ask without wanting a quote. Nothing should linger.
+        _ = try? await AIService.shared.answer(
+            question: "Who is on your team?",
+            scriptContext: nil,
+            wantsScriptQuote: false
+        )
+        expect(
+            AIService.shared.lastScriptQuote == nil,
+            "An answer with no quote must clear the previous one, got \(String(describing: AIService.shared.lastScriptQuote))"
+        )
+    }
+
+    /// Regression: the non-streaming path decoded every response as a chat
+    /// completion. With `response_format: json_object` that still works, but a
+    /// structured answer fetched without `onDelta` — which is exactly what
+    /// happens when a user turns streaming off with a script loaded — failed
+    /// outright with `Empty choices` whenever the provider returned the object
+    /// without the envelope.
+    @MainActor
+    private static func testNonStreamingStructuredAnswerWorks(baseURL: String) async {
+        configure(primaryPath: baseURL.replacingOccurrences(of: "/v1", with: "/nostream/v1"))
+        AIConfig.shared.answerCacheEnabled = false
+
+        // No onDelta: this takes the non-streaming path.
+        var answer: String?
+        do {
+            answer = try await AIService.shared.answer(
+                question: "What is the annual plan cost?",
+                scriptContext: nil,
+                wantsScriptQuote: true
+            )
+        } catch {
+            expect(false, "Non-streaming structured answer threw: \(error)")
+        }
+        expect(
+            answer?.contains("annual pricing") == true,
+            "The non-streaming structured answer should be extracted, got \(String(describing: answer))"
+        )
+        expect(
+            AIService.shared.lastScriptQuote?.contains("objection number 27") == true,
+            "The quote should be captured on the non-streaming path too, got \(String(describing: AIService.shared.lastScriptQuote))"
+        )
+    }
+
+    /// Self-hosted OpenAI-compatible servers often return the structured object
+    /// at the top level. That must not surface as `Empty choices`.
+    @MainActor
+    private static func testBareStructuredObjectIsAccepted(baseURL: String) async {
+        configure(primaryPath: baseURL.replacingOccurrences(of: "/v1", with: "/bare/nostream/v1"))
+        AIConfig.shared.answerCacheEnabled = false
+
+        var answer: String?
+        do {
+            answer = try await AIService.shared.answer(
+                question: "And what is in the pilot?",
+                scriptContext: nil,
+                wantsScriptQuote: true
+            )
+        } catch {
+            expect(false, "A bare structured object should be accepted, threw: \(error)")
+        }
+        expect(
+            answer?.contains("annual pricing") == true,
+            "A bare structured object should still yield the answer, got \(String(describing: answer))"
+        )
+        expect(
+            AIService.shared.lastScriptQuote?.contains("objection number 27") == true,
+            "A bare structured object should still yield a quote, got \(String(describing: AIService.shared.lastScriptQuote))"
+        )
     }
 }

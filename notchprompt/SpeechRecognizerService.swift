@@ -125,7 +125,28 @@ final class SpeechRecognizerService: NSObject, ObservableObject {
     /// Prefer Apple's on-device model when the locale supports it (faster + private).
     var preferOnDeviceRecognition = true
 
-    private let defaultLocaleIdentifier = "en-US"
+    /// The locale used when the user has chosen "System default".
+    ///
+    /// This deliberately follows macOS instead of being pinned to a constant.
+    /// A hardcoded `en-US` meant a user whose system language was, say, French
+    /// got English transcription while the picker claimed to follow the system.
+    nonisolated private static var systemLocaleIdentifier: String {
+        SFSpeechRecognizer()?.locale.identifier ?? Locale.current.identifier
+    }
+
+    /// Resolves what the UI and diagnostics should report for a requested locale.
+    ///
+    /// Extracted from `startListening(localeIdentifier:)` so the empty-means-
+    /// system-default rule is testable without the Speech framework, which has
+    /// no injectable seam. `nonisolated` because the rule is pure logic and must
+    /// be assertable without a main-actor hop.
+    nonisolated static func resolvedLocaleIdentifier(
+        for requested: String?,
+        systemLocale: () -> String = { SpeechRecognizerService.systemLocaleIdentifier }
+    ) -> String {
+        let trimmed = (requested ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? systemLocale() : trimmed
+    }
 
     override init() {
         super.init()
@@ -202,10 +223,18 @@ final class SpeechRecognizerService: NSObject, ObservableObject {
         // An empty identifier means "use the system default", which is what a
         // user who has not chosen a language should get.
         let requested = (localeIdentifier ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        activeLocaleIdentifier = requested.isEmpty ? defaultLocaleIdentifier : requested
+        activeLocaleIdentifier = Self.resolvedLocaleIdentifier(for: requested)
 
         let recognizer: SFSpeechRecognizer
-        if let localized = SFSpeechRecognizer(locale: Locale(identifier: activeLocaleIdentifier)) {
+        if requested.isEmpty {
+            // Ask the system rather than constructing from an identifier: this is
+            // what honours the user's speech-recognition language setting.
+            guard let systemRecognizer = SFSpeechRecognizer() else {
+                isRecognizerAvailable = false
+                throw SpeechRecognizerError.localeNotSupported(activeLocaleIdentifier)
+            }
+            recognizer = systemRecognizer
+        } else if let localized = SFSpeechRecognizer(locale: Locale(identifier: requested)) {
             recognizer = localized
         } else {
             // The language is not supported at all on this machine.

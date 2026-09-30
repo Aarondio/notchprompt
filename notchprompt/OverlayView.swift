@@ -254,7 +254,7 @@ struct OverlayView: View {
                 .allowsHitTesting(false)
             }
         }
-        .frame(width: model.overlayWidth, height: model.effectiveOverlayHeight)
+        .frame(width: model.effectiveOverlayWidth, height: model.effectiveOverlayHeight)
     }
 }
 

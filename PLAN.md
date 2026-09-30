@@ -410,6 +410,26 @@ clean and all self-test groups pass at launch.
   `stream:true`, providers that reject `response_format` (4xx retry), the
   fallback chain, and total failure. No API key required; the test file is
   deliberately **not** in the app target.
+- [x] **Defect sweep on the Phase 1–6 features.** ✅ Four bugs found by review and
+  then pinned with tests. (a) "System default" speech locale resolved to a
+  hardcoded `en-US`, so anyone on a non-English system got English transcription
+  while the picker claimed to follow the system; resolution is now
+  `nonisolated` pure logic with an injectable system locale. (b) A cached answer
+  kept the *previous* answer's script quote, so Jump sent the speaker to an
+  unrelated line; the quote is now stored on the cache entry, restored on a hit,
+  and cleared at the start of every request. (c) `ScriptPositionModel.reset()`
+  left the highlight range set, so replacing the script highlighted an arbitrary
+  span of the new text. (d) `OverlayView` laid out at the raw stored width while
+  the panel frame was clamped, so a width saved on a large display was clipped on
+  a small one; both now read one `effectiveOverlayWidth`. The stored preference is
+  deliberately not rewritten, so a width chosen on a large display survives a trip
+  to a small one.
+- [x] **Non-streaming structured answers.** ✅ Found by the integration suite: with
+  `response_format: json_object` and streaming switched off — exactly what happens
+  when a user disables streaming with a script loaded — the non-streaming path
+  decoded every response as a chat completion and failed with `Empty choices`. Now
+  tolerant of providers that return the structured object without the envelope
+  (LM Studio, llama.cpp, Ollama), which self-hosted `.custom` endpoints often do.
 - [ ] **First-run onboarding.** A new user's first experience today is tapping
       the mic and getting a red error card.
 - [ ] **Token / cost meter.** Parse `usage` from responses and surface spend.
